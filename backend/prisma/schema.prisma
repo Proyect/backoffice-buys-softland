@@ -1,0 +1,270 @@
+// Prisma schema for PostgreSQL
+// Uses DATABASE_URL from environment (provided by docker-compose service backend)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================
+// Enums
+// ==========================
+
+enum Currency {
+  ARS
+  USD
+  EUR
+}
+
+enum PurchaseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+// ==========================
+// RBAC
+// ==========================
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  roles         UserRole[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  createdPOs    PurchaseOrder[]   @relation("POCreatedBy")
+  approvals     PurchaseApprovalStep[]
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  // Approval policy templates can reference roles
+  approvalStepsTemplate ApprovalStepTemplate[]
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  key         String           @unique // e.g. "po.approve"
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  roles       RolePermission[]
+}
+
+model UserRole {
+  userId String
+  roleId String
+
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  ip        String?
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  payload   Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+  @@index([userId])
+  @@index([entity, entityId])
+}
+
+// ==========================
+// Master data
+// ==========================
+
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  taxId     String?  // CUIT/RUT
+  email     String?
+  phone     String?
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+
+  @@index([name])
+  @@index([taxId])
+}
+
+// ==========================
+// Purchase Orders
+// ==========================
+
+model PurchaseOrder {
+  id              String         @id @default(uuid())
+  supplierId      String
+  createdByUserId String
+  status          PurchaseStatus @default(DRAFT)
+  currency        Currency       @default(ARS)
+  total           Decimal        @db.Decimal(18, 2)
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  supplier Supplier  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy User     @relation("POCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  items     PurchaseItem[]
+  approvals PurchaseApprovalStep[]
+  logs      ApprovalLog[]
+  files     Attachment[]
+
+  @@index([supplierId])
+  @@index([createdByUserId])
+  @@index([status])
+}
+
+model PurchaseItem {
+  id             String   @id @default(uuid())
+  purchaseOrderId String
+  description    String
+  quantity       Int
+  unitPrice      Decimal  @db.Decimal(18, 2)
+  taxPercent     Decimal? @db.Decimal(5, 2)
+  total          Decimal  @db.Decimal(18, 2)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseOrderId])
+}
+
+// Templates for multi-level approval policies (e.g., by role and order)
+model ApprovalStepTemplate {
+  id        String   @id @default(uuid())
+  roleId    String   // role responsible for this step
+  order     Int
+  policyId  String
+
+  role   Role           @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  policy ApprovalPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, order])
+}
+
+model ApprovalPolicy {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  // Example criteria fields
+  maxAmount   Decimal? @db.Decimal(18, 2) // apply if order total <= maxAmount (null = no limit)
+  currency    Currency?
+  costCenter  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  steps ApprovalStepTemplate[]
+}
+
+// Runtime approvals bound to a PurchaseOrder
+model PurchaseApprovalStep {
+  id              String         @id @default(uuid())
+  purchaseOrderId String
+  order           Int
+  roleId          String?
+  approverUserId  String?        // actual user who approved/rejected
+  status          ApprovalStatus  @default(PENDING)
+  comment         String?
+  decidedAt       DateTime?
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  role          Role?         @relation(fields: [roleId], references: [id])
+  approver      User?         @relation(fields: [approverUserId], references: [id])
+
+  @@unique([purchaseOrderId, order])
+  @@index([roleId])
+  @@index([approverUserId])
+}
+
+model ApprovalLog {
+  id              String   @id @default(uuid())
+  purchaseOrderId String
+  userId          String?
+  action          String   // submitted, approved, rejected, cancelled
+  comment         String?
+  createdAt       DateTime @default(now())
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  user          User?         @relation(fields: [userId], references: [id])
+
+  @@index([purchaseOrderId])
+  @@index([userId])
+}
+
+model Attachment {
+  id              String   @id @default(uuid())
+  purchaseOrderId String
+  filename        String
+  path            String   // where the file is stored (local or object storage URL)
+  mimeType        String?
+  sizeBytes       Int?
+  uploadedAt      DateTime @default(now())
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  @@index([purchaseOrderId])
+}
