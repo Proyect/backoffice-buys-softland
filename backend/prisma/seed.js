@@ -44,9 +44,9 @@ async function upsertPermissions() {
 }
 
 async function upsertRoles(permissions) {
-  // Helper to map a list of keys to connect objects
-  const byKeys = (keys) => ({
-    connect: permissions.filter((p) => keys.includes(p.key)).map((p) => ({ id: p.id })),
+  const idByKey = Object.fromEntries(permissions.map((p) => [p.key, p.id]))
+  const makePermCreates = (keys) => ({
+    create: keys.map((k) => ({ permission: { connect: { id: idByKey[k] } } })),
   })
 
   const admin = await prisma.role.upsert({
@@ -55,7 +55,7 @@ async function upsertRoles(permissions) {
     create: {
       name: 'Admin',
       description: 'Administrador del sistema',
-      permissions: byKeys(permissions.map((p) => p.key)),
+      permissions: makePermCreates(permissions.map((p) => p.key)),
     },
   })
 
@@ -65,7 +65,7 @@ async function upsertRoles(permissions) {
     create: {
       name: 'Comprador',
       description: 'Crea y edita órdenes de compra',
-      permissions: byKeys([
+      permissions: makePermCreates([
         'supplier.read', 'po.read', 'po.create', 'po.update', 'po.submit',
       ]),
     },
@@ -77,7 +77,7 @@ async function upsertRoles(permissions) {
     create: {
       name: 'Aprobador',
       description: 'Aprueba o rechaza órdenes de compra',
-      permissions: byKeys(['po.read', 'po.approve', 'po.reject']),
+      permissions: makePermCreates(['po.read', 'po.approve', 'po.reject']),
     },
   })
 
@@ -87,7 +87,7 @@ async function upsertRoles(permissions) {
     create: {
       name: 'Consulta',
       description: 'Solo lectura',
-      permissions: byKeys(['supplier.read', 'po.read', 'audit.read']),
+      permissions: makePermCreates(['supplier.read', 'po.read', 'audit.read']),
     },
   })
 

@@ -40,53 +40,55 @@ enum ApprovalStatus {
 // ==========================
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  passwordHash  String
-  firstName     String
-  lastName      String
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   roles         UserRole[]
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
 
   createdPOs    PurchaseOrder[]   @relation("POCreatedBy")
-  approvals     PurchaseApprovalStep[]
+  approvals     PurchaseApprovalStep[] @relation("ApprovalStepApprover")
+  ApprovalLog   ApprovalLog[]     @relation("ApprovalLogUser")
 }
 
 model Role {
-  id          String           @id @default(uuid())
-  name        String           @unique
+  id          String   @id @default(uuid())
+  name        String   @unique
   description String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   users       UserRole[]
   permissions RolePermission[]
 
   // Approval policy templates can reference roles
   approvalStepsTemplate ApprovalStepTemplate[]
+  approvalSteps         PurchaseApprovalStep[] @relation("ApprovalStepRole")
 }
 
 model Permission {
-  id          String           @id @default(uuid())
-  key         String           @unique // e.g. "po.approve"
+  id          String   @id @default(uuid())
+  key         String   @unique // e.g. "po.approve"
   description String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  roles       RolePermission[]
+  roles RolePermission[]
 }
 
 model UserRole {
   userId String
   roleId String
 
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
 }
@@ -112,6 +114,7 @@ model RefreshToken {
   userAgent String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 
@@ -127,6 +130,7 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id])
+
   @@index([userId])
   @@index([entity, entityId])
 }
@@ -138,7 +142,7 @@ model AuditLog {
 model Supplier {
   id        String   @id @default(uuid())
   name      String
-  taxId     String?  // CUIT/RUT
+  taxId     String? // CUIT/RUT
   email     String?
   phone     String?
   address   String?
@@ -167,11 +171,11 @@ model PurchaseOrder {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  supplier Supplier  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  createdBy User     @relation("POCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  supplier  Supplier               @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy User                   @relation("POCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   items     PurchaseItem[]
   approvals PurchaseApprovalStep[]
-  logs      ApprovalLog[]
+  logs      ApprovalLog[]         @relation("POApprovalLogs")
   files     Attachment[]
 
   @@index([supplierId])
@@ -180,13 +184,13 @@ model PurchaseOrder {
 }
 
 model PurchaseItem {
-  id             String   @id @default(uuid())
+  id              String   @id @default(uuid())
   purchaseOrderId String
-  description    String
-  quantity       Int
-  unitPrice      Decimal  @db.Decimal(18, 2)
-  taxPercent     Decimal? @db.Decimal(5, 2)
-  total          Decimal  @db.Decimal(18, 2)
+  description     String
+  quantity        Int
+  unitPrice       Decimal  @db.Decimal(18, 2)
+  taxPercent      Decimal? @db.Decimal(5, 2)
+  total           Decimal  @db.Decimal(18, 2)
 
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
 
@@ -195,10 +199,10 @@ model PurchaseItem {
 
 // Templates for multi-level approval policies (e.g., by role and order)
 model ApprovalStepTemplate {
-  id        String   @id @default(uuid())
-  roleId    String   // role responsible for this step
-  order     Int
-  policyId  String
+  id       String @id @default(uuid())
+  roleId   String // role responsible for this step
+  order    Int
+  policyId String
 
   role   Role           @relation(fields: [roleId], references: [id], onDelete: Restrict)
   policy ApprovalPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
@@ -207,16 +211,16 @@ model ApprovalStepTemplate {
 }
 
 model ApprovalPolicy {
-  id          String   @id @default(uuid())
-  name        String   @unique
+  id          String    @id @default(uuid())
+  name        String    @unique
   description String?
   // Example criteria fields
-  maxAmount   Decimal? @db.Decimal(18, 2) // apply if order total <= maxAmount (null = no limit)
+  maxAmount   Decimal?  @db.Decimal(18, 2) // apply if order total <= maxAmount (null = no limit)
   currency    Currency?
   costCenter  String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   steps ApprovalStepTemplate[]
 }
@@ -233,8 +237,8 @@ model PurchaseApprovalStep {
   decidedAt       DateTime?
 
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  role          Role?         @relation(fields: [roleId], references: [id])
-  approver      User?         @relation(fields: [approverUserId], references: [id])
+  role          Role?         @relation("ApprovalStepRole", fields: [roleId], references: [id])
+  approver      User?         @relation("ApprovalStepApprover", fields: [approverUserId], references: [id])
 
   @@unique([purchaseOrderId, order])
   @@index([roleId])
@@ -249,8 +253,8 @@ model ApprovalLog {
   comment         String?
   createdAt       DateTime @default(now())
 
-  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  user          User?         @relation(fields: [userId], references: [id])
+  purchaseOrder PurchaseOrder @relation("POApprovalLogs", fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  user          User?         @relation("ApprovalLogUser", fields: [userId], references: [id])
 
   @@index([purchaseOrderId])
   @@index([userId])
@@ -260,11 +264,12 @@ model Attachment {
   id              String   @id @default(uuid())
   purchaseOrderId String
   filename        String
-  path            String   // where the file is stored (local or object storage URL)
+  path            String // where the file is stored (local or object storage URL)
   mimeType        String?
   sizeBytes       Int?
   uploadedAt      DateTime @default(now())
 
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
   @@index([purchaseOrderId])
 }

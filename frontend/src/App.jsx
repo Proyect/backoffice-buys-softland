@@ -1,24 +1,23 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import Login from './pages/Login.jsx'
+import Dashboard from './pages/Dashboard.jsx'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+function Guard({ children }) {
+  const token = localStorage.getItem('accessToken')
+  if (!token) return <Navigate to="/login" replace />
+  return children
+}
 
 export default function App() {
-  const [health, setHealth] = useState(null)
-
-  useEffect(() => {
-    fetch(`${API_URL}/health`)
-      .then(res => res.json())
-      .then(setHealth)
-      .catch(err => setHealth({ error: err.message }))
-  }, [])
-
   return (
-    <div style={{fontFamily:'Inter, system-ui, Arial', padding: 24}}>
-      <h1>Backoffice Buys Softland</h1>
-      <p>Frontend en React + Vite. API: {API_URL}</p>
-
-      <h2>Estado del backend</h2>
-      <pre>{JSON.stringify(health, null, 2)}</pre>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/" element={<Guard><Dashboard /></Guard>} />
+        <Route path="/dashboard" element={<Guard><Dashboard /></Guard>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   )
 }

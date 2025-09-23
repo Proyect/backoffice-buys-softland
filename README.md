@@ -1,3 +1,10 @@
+### Endpoints de autenticación
+
+- `POST /auth/login` – Inicia sesión y devuelve tokens + permisos.
+- `POST /auth/refresh` – Gira el refresh token y devuelve nuevos tokens.
+- `POST /auth/logout` – Revoca el refresh token.
+- `GET /auth/me` – Devuelve información del usuario autenticado y permisos.
+
 # Backoffice Buys Softland (Docker Dev Setup)
 
 Este repo contiene un monorepo simple con `backend` (Node + Express), `frontend` (React + Vite) y `PostgreSQL`, todo orquestado con Docker.
@@ -15,6 +22,8 @@ Este repo contiene un monorepo simple con `backend` (Node + Express), `frontend`
 3. Accede a:
    - Frontend: http://localhost:5173
    - Backend (health): http://localhost:4000/health
+   - Documentación OpenAPI (Swagger UI): http://localhost:4000/docs
+   - OpenAPI JSON: http://localhost:4000/docs.json
    - pgAdmin (opcional): http://localhost:5050
 
 ## Variables de entorno (raíz .env)
@@ -22,7 +31,10 @@ Este repo contiene un monorepo simple con `backend` (Node + Express), `frontend`
 - `BACKEND_PORT` (host), `DATABASE_URL`
 - `FRONTEND_PORT` (host), `VITE_API_URL`
 - `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD`, `PGADMIN_PORT`
- - `ALLOWED_ORIGINS`: Lista separada por comas de orígenes permitidos para CORS (p. ej. `http://localhost:5173`).
+- `ALLOWED_ORIGINS`: Lista separada por comas de orígenes permitidos para CORS (p. ej. `http://localhost:5173`).
+- `JWT_SECRET`: Secreto para firmar Access Tokens (cambiar en producción).
+- `ACCESS_TOKEN_TTL`: Vida del Access Token (por defecto `15m`).
+- `REFRESH_TOKEN_TTL`: Vida del Refresh Token (por defecto `7d`).
 
 > Nota: El backend escucha internamente en el puerto 4000 (ver `backend/src/index.js`). El mapeo hacia el host se controla con `BACKEND_PORT` en `docker-compose.yml`.
 
@@ -54,6 +66,45 @@ Este repo contiene un monorepo simple con `backend` (Node + Express), `frontend`
 - CORS por orígenes permitidos
   - Configurar `ALLOWED_ORIGINS` en `.env` (ej: `ALLOWED_ORIGINS=http://localhost:5173`).
   - `docker-compose.yml` pasa la variable al servicio `backend`.
+
+### Autenticación y seguridad (implementado)
+
+- JWT de acceso y Refresh Tokens persistidos (tabla `RefreshToken`).
+- Endpoints:
+  - `POST /auth/login` { email, password } → tokens + usuario + permisos.
+  - `POST /auth/refresh` { refreshToken } → nuevo access y refresh.
+  - `POST /auth/logout` { refreshToken } → revoca el refresh.
+  - `GET /auth/me` (requiere `Authorization: Bearer <accessToken>`)
+- Middlewares:
+  - `requireAuth` valida el Access Token y adjunta `req.user` y `req.permissions`.
+  - `requirePermission('perm.clave')` protege rutas por permiso.
+- Endurecimiento:
+  - `helmet()` habilitado.
+  - `express-rate-limit` por defecto: 300 req / 15min / IP.
+  - Auditoría: tabla `AuditLog` para registrar acciones sensibles.
+
+Ejemplos (curl):
+
+```bash
+# Login
+curl -sS -X POST http://localhost:4000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@local.test","password":"Admin1234!"}'
+
+# Refresh
+curl -sS -X POST http://localhost:4000/auth/refresh \
+  -H 'Content-Type: application/json' \
+  -d '{"refreshToken":"<token>"}'
+
+# Perfil actual
+curl -sS http://localhost:4000/auth/me \
+  -H 'Authorization: Bearer <accessToken>'
+
+# Logout
+curl -sS -X POST http://localhost:4000/auth/logout \
+  -H 'Content-Type: application/json' \
+  -d '{"refreshToken":"<token>"}'
+```
 
 ### Probar rápidamente
 
@@ -154,6 +205,8 @@ docker compose up -d --build
   - `error-handler` unificado y 404.
 - Validación de entorno: `src/config/env.js` con `envalid`.
 - DB: `src/lib/db.js` crea un `pg.Pool` con `DATABASE_URL` y expone `checkConnection()` usado por `/health`.
+- ORM: Prisma `@prisma/client` + esquema en `backend/prisma/schema.prisma` (RBAC, Suppliers, POs, Aprobaciones, Auditoría, Adjuntos).
+- Prisma seedea datos iniciales (roles, permisos, admin, política de aprobación base) con `npm run prisma:seed` dentro del contenedor backend.
 
 ### Endpoints actuales
 
@@ -176,10 +229,35 @@ docker compose up -d --build
     ```
 
 ## Testing y calidad (ruta sugerida)
+ 
+- Backend: Vitest + Supertest.
+  - Unit tests (sin DB real):
+    ```bash
+    cd backend
+    npm install
+    npm run test
+    # o en modo watch
+    npm run test:watch
+    ```
+  - Integration test (usa DB real y seed):
+    - Requisitos: `docker compose up -d`, `npm run prisma:migrate`, `npm run prisma:seed`.
+    - Ejecutar con variable `INTEGRATION_TEST=1`:
+      ```bash
+      cd backend
+      INTEGRATION_TEST=1 npm run test
+      ```
+    - Caso cubierto: login con `admin@local.test` / `Admin1234!` y acceso a `/auth/me` con `Bearer` token.
+  - Scripts útiles de DB:
+    ```bash
+    npm run prisma:generate
+    npm run prisma:migrate         # desarrollo
+    npm run prisma:migrate:deploy  # despliegue/CI
+    npm run prisma:seed
+    npm run db:reset               # reset + seed
+    ```
 
-- Backend: Jest + Supertest (tests para `/health`).
-- Frontend: Vitest + React Testing Library.
-- ESLint + Prettier + EditorConfig en ambos paquetes.
+- Frontend: Vitest + React Testing Library (pendiente de agregar).
+- ESLint + Prettier + EditorConfig en ambos paquetes (pendiente de agregar).
 
 ## Problemas comunes (Troubleshooting)
 
@@ -197,9 +275,10 @@ docker compose up -d --build
 
 ## Roadmap (siguientes pasos)
 
-- Integrar Prisma para migraciones y acceso a datos.
-- Agregar healthchecks de Docker y políticas de reinicio.
-- Configurar CI/CD (GitHub Actions) para lint, tests y build de imágenes.
+- Integrar endpoints de Proveedores y Órdenes de Compra con RBAC en backend.
+- Implementar flujo de aprobación por política (runtime) en `/pos/:id/submit/approve/reject/cancel`.
+- Healthchecks de Docker y políticas de reinicio.
+- CI/CD (GitHub Actions) para lint, tests y build de imágenes.
 - Dockerfiles multi-stage y `docker-compose.prod.yml` con Nginx sirviendo el build del frontend.
 
 ---
