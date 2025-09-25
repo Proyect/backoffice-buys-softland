@@ -12,6 +12,7 @@
     "prisma:seed": "node prisma/seed.js",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force && npm run prisma:seed",
+    "test:setup": "npm run prisma:migrate:deploy && npm run prisma:seed",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -39,3 +40,4 @@
     "vitest": "^1.6.0"
   }
 }
+

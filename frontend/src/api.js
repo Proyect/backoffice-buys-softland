@@ -52,5 +52,16 @@ export const api = {
       return request(`/api/po?${q.toString()}`, { auth: true })
     },
     create: (data) => request('/api/po', { method: 'POST', body: data, auth: true }),
+    get: (id) => request(`/api/po/${id}`, { auth: true }),
+    submit: (id) => request(`/api/po/${id}`, { method: 'POST', auth: true }),
+    steps: (id) => request(`/api/po/${id}/steps`, { auth: true }),
+    approve: (id, order, comment) => request(`/api/po/${id}/steps/${order}/approve`, { method: 'POST', body: comment ? { comment } : undefined, auth: true }),
+    reject: (id, order, comment) => request(`/api/po/${id}/steps/${order}/reject`, { method: 'POST', body: comment ? { comment } : undefined, auth: true }),
+    cancel: (id) => request(`/api/po/${id}/cancel`, { method: 'POST', auth: true }),
+    logs: (id) => request(`/api/po/${id}/logs`, { auth: true }),
+    stats: () => request('/api/po/stats', { auth: true }),
+    pendingForMe: () => request('/api/po/pending-for-me', { auth: true }),
+    statsTimeseries: (days = 14) => request(`/api/po/stats/timeseries?days=${days}`, { auth: true }),
   },
 }
+

@@ -20,6 +20,18 @@ export default function Dashboard() {
   const [poList, setPoList] = useState({ items: [], total: 0 })
   const [loading, setLoading] = useState(false)
   const [health, setHealth] = useState(null)
+  const [selectedPO, setSelectedPO] = useState(null)
+  const [poSteps, setPoSteps] = useState([])
+  const [decisionComment, setDecisionComment] = useState('')
+  const [poLogs, setPoLogs] = useState([])
+  const [poFilters, setPoFilters] = useState({ status: '', supplierId: '' })
+  const [poPage, setPoPage] = useState(0)
+  const pageSize = 10
+  const [poListLoading, setPoListLoading] = useState(false)
+  const [suppliersLoading, setSuppliersLoading] = useState(false)
+  const [poStats, setPoStats] = useState({ counts: { draft: 0, submitted: 0, approved: 0, rejected: 0, cancelled: 0 }, recent: [] })
+  const [poPendingMe, setPoPendingMe] = useState({ items: [], total: 0 })
+  const [poTimeseries, setPoTimeseries] = useState({ days: 14, series: [] })
 
   useEffect(() => {
     fetch(`${api.url}/health`).then(r=>r.json()).then(setHealth).catch(e=>setHealth({error:e.message}))
@@ -30,7 +42,7 @@ export default function Dashboard() {
       try {
         const profile = await api.me()
         setMe(profile)
-        await Promise.all([loadSuppliers(), loadPOs()])
+        await Promise.all([loadSuppliers(), loadPOs(), loadStats(), loadPendingForMe(), loadTimeseries()])
       } catch (e) {
         api.clearToken()
         nav('/login')
@@ -38,17 +50,36 @@ export default function Dashboard() {
     })()
   }, [nav])
 
+  // Auto-reload POs when filters or page change
+  useEffect(() => {
+    loadPOs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poFilters, poPage])
+
   async function loadSuppliers() {
-    const data = await api.suppliers.list({ take: 10 })
-    setSuppliers(data)
-    if (data.items.length && !poForm.supplierId) {
-      setPoForm((p) => ({ ...p, supplierId: data.items[0].id }))
+    setSuppliersLoading(true)
+    try {
+      const data = await api.suppliers.list({ take: 50 })
+      setSuppliers(data)
+      if (data.items.length && !poForm.supplierId) {
+        setPoForm((p) => ({ ...p, supplierId: data.items[0].id }))
+      }
+    } finally {
+      setSuppliersLoading(false)
     }
   }
 
   async function loadPOs() {
-    const data = await api.po.list({ take: 10 })
-    setPoList(data)
+    setPoListLoading(true)
+    try {
+      const params = { take: pageSize, skip: poPage * pageSize }
+      if (poFilters.status) params.status = poFilters.status
+      if (poFilters.supplierId) params.supplierId = poFilters.supplierId
+      const data = await api.po.list(params)
+      setPoList(data)
+    } finally {
+      setPoListLoading(false)
+    }
   }
 
   async function createSupplier(e) {
@@ -93,6 +124,89 @@ export default function Dashboard() {
     api.clearToken()
     nav('/login')
   }
+  
+  async function selectPO(id) {
+    try {
+      setLoading(true)
+      const po = await api.po.get(id)
+      setSelectedPO(po)
+      const st = await api.po.steps(id)
+      setPoSteps(st.steps || [])
+      const logsRes = await api.po.logs(id)
+      setPoLogs(logsRes.logs || [])
+    } catch (e) {
+      alert('Load PO error: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  async function submitSelectedPO() {
+    if (!selectedPO) return
+    try {
+      setLoading(true)
+      const res = await api.po.submit(selectedPO.id)
+      setSelectedPO(res)
+      const st = await api.po.steps(selectedPO.id)
+      setPoSteps(st.steps || [])
+      await loadPOs()
+    } catch (e) {
+      alert('Submit PO error: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function approveCurrentStep() {
+    if (!selectedPO) return
+    try {
+      setLoading(true)
+      const pending = poSteps.find(s => s.status === 'PENDING')
+      if (!pending) {
+        alert('No hay pasos pendientes')
+        return
+      }
+      await api.po.approve(selectedPO.id, pending.order, decisionComment || undefined)
+      await selectPO(selectedPO.id)
+      await loadPOs()
+    } catch (e) {
+      alert('Approve error: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function rejectCurrentStep() {
+    if (!selectedPO) return
+    try {
+      setLoading(true)
+      const pending = poSteps.find(s => s.status === 'PENDING')
+      if (!pending) {
+        alert('No hay pasos pendientes')
+        return
+      }
+      await api.po.reject(selectedPO.id, pending.order, decisionComment || undefined)
+      await selectPO(selectedPO.id)
+      await loadPOs()
+    } catch (e) {
+      alert('Reject error: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function cancelSelectedPO() {
+    if (!selectedPO) return
+    try {
+      setLoading(true)
+      await api.po.cancel(selectedPO.id)
+      await selectPO(selectedPO.id)
+      await loadPOs()
+    } catch (e) {
+      alert('Cancel error: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div style={{fontFamily:'Inter, system-ui, Arial', padding: 24, maxWidth: 1000, margin:'0 auto'}}>
@@ -113,6 +227,96 @@ export default function Dashboard() {
 
       <Section title="Estado del backend">
         <pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(health, null, 2)}</pre>
+      </Section>
+
+      <Section title="Indicadores (PO)">
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:12}}>
+          {[
+            { key:'draft', label:'Borradores' },
+            { key:'submitted', label:'Enviadas' },
+            { key:'approved', label:'Aprobadas' },
+            { key:'rejected', label:'Rechazadas' },
+            { key:'cancelled', label:'Canceladas' },
+          ].map(k => (
+            <div key={k.key} style={{border:'1px solid #ddd', borderRadius:8, padding:12, background:'#fafafa'}}>
+              <div style={{fontSize:12, color:'#666'}}>{k.label}</div>
+              <div style={{fontSize:24, fontWeight:700}}>{poStats.counts?.[k.key] ?? 0}</div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Actividad reciente (aprobaciones)">
+        {poStats.recent?.length ? (
+          <ul>
+            {poStats.recent.map(ev => (
+              <li key={ev.id}>
+                <span>{new Date(ev.createdAt).toLocaleString()} — {ev.action}</span>
+                {ev.user && (
+                  <span> — Por: {ev.user.firstName || ev.user.email}</span>
+                )}
+                {ev.purchaseOrder && (
+                  <span> — PO: {ev.purchaseOrder.id} ({ev.purchaseOrder.status})</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div style={{color:'#666'}}>Sin actividad reciente.</div>
+        )}
+      </Section>
+
+      <Section title="Mis aprobaciones pendientes">
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+          <strong>Total: {poPendingMe.total}</strong>
+          <button onClick={() => { loadPendingForMe(); }}>Refrescar</button>
+        </div>
+        {poPendingMe.items.length ? (
+          <ul>
+            {poPendingMe.items.map(it => (
+              <li key={it.step.id} style={{display:'flex', gap:8, alignItems:'center'}}>
+                <span>PO {it.po.id} — Paso #{it.step.order} ({it.step.roleName || it.step.roleId}) — Estado: {it.po.status} — Total: {it.po.total} {it.po.currency}</span>
+                <button onClick={() => selectPO(it.po.id)}>Ver</button>
+                {selectedPO?.id !== it.po.id && (
+                  <button onClick={async () => { await selectPO(it.po.id); }}>Abrir</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div style={{color:'#666'}}>No tienes aprobaciones pendientes.</div>
+        )}
+      </Section>
+
+      <Section title={`Actividad (últimos ${poTimeseries.days} días)`}>
+        {poTimeseries.series.length ? (
+          <div style={{overflowX:'auto'}}>
+            <table style={{borderCollapse:'collapse', minWidth:560}}>
+              <thead>
+                <tr>
+                  <th style={{textAlign:'left', borderBottom:'1px solid #ddd', padding:'4px 8px'}}>Fecha</th>
+                  <th style={{textAlign:'right', borderBottom:'1px solid #ddd', padding:'4px 8px'}}>Submitted</th>
+                  <th style={{textAlign:'right', borderBottom:'1px solid #ddd', padding:'4px 8px'}}>Approved</th>
+                  <th style={{textAlign:'right', borderBottom:'1px solid #ddd', padding:'4px 8px'}}>Rejected</th>
+                  <th style={{textAlign:'right', borderBottom:'1px solid #ddd', padding:'4px 8px'}}>Cancelled</th>
+                </tr>
+              </thead>
+              <tbody>
+                {poTimeseries.series.map(row => (
+                  <tr key={row.date}>
+                    <td style={{padding:'4px 8px'}}>{row.date}</td>
+                    <td style={{padding:'4px 8px', textAlign:'right'}}>{row.submitted}</td>
+                    <td style={{padding:'4px 8px', textAlign:'right'}}>{row.approved}</td>
+                    <td style={{padding:'4px 8px', textAlign:'right'}}>{row.rejected}</td>
+                    <td style={{padding:'4px 8px', textAlign:'right'}}>{row.cancelled}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{color:'#666'}}>Sin actividad en el rango seleccionado.</div>
+        )}
       </Section>
 
       <Section title="Suppliers">
@@ -136,13 +340,20 @@ export default function Dashboard() {
           <div style={{flex:1, minWidth:320}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
               <strong>Listado (total: {suppliers.total})</strong>
-              <button onClick={loadSuppliers}>Refrescar</button>
+              <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                {suppliersLoading && <small style={{color:'#888'}}>Cargando…</small>}
+                <button onClick={loadSuppliers} disabled={suppliersLoading}>Refrescar</button>
+              </div>
             </div>
-            <ul>
-              {suppliers.items.map(s => (
-                <li key={s.id}>{s.name} — {s.email || 's/ email'}</li>
-              ))}
-            </ul>
+            {suppliers.items.length === 0 ? (
+              <div style={{color:'#666'}}>No hay proveedores.</div>
+            ) : (
+              <ul>
+                {suppliers.items.map(s => (
+                  <li key={s.id}>{s.name} — {s.email || 's/ email'}</li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </Section>
@@ -196,16 +407,147 @@ export default function Dashboard() {
       </Section>
 
       <Section title="Listado de Purchase Orders">
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap'}}>
           <strong>Total: {poList.total}</strong>
-          <button onClick={loadPOs}>Refrescar</button>
+          <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+            <label style={{display:'grid'}}>
+              <span>Estado</span>
+              <select value={poFilters.status} onChange={e=>{ setPoFilters({...poFilters, status:e.target.value}); setPoPage(0) }}>
+                <option value="">Todos</option>
+                <option value="DRAFT">DRAFT</option>
+                <option value="SUBMITTED">SUBMITTED</option>
+                <option value="APPROVED">APPROVED</option>
+                <option value="REJECTED">REJECTED</option>
+                <option value="CANCELLED">CANCELLED</option>
+              </select>
+            </label>
+            <label style={{display:'grid'}}>
+              <span>Proveedor</span>
+              <select value={poFilters.supplierId} onChange={e=>{ setPoFilters({...poFilters, supplierId:e.target.value}); setPoPage(0) }}>
+                <option value="">Todos</option>
+                {suppliers.items.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </label>
+            <button onClick={loadPOs}>Aplicar</button>
+          </div>
+          <div style={{display:'flex', gap:8, alignItems:'center'}}>
+            {poListLoading && <small style={{color:'#888'}}>Cargando…</small>}
+            {(() => {
+              const pages = Math.max(1, Math.ceil((poList.total || 0) / pageSize))
+              const page = poPage + 1
+              return (
+                <>
+                  <button onClick={() => setPoPage(p => Math.max(0, p - 1))} disabled={poPage === 0}>Anterior</button>
+                  <span>Página {page} de {pages}</span>
+                  <button onClick={() => setPoPage(p => (page < pages ? p + 1 : p))} disabled={(poPage + 1) >= pages}>Siguiente</button>
+                </>
+              )
+            })()}
+          </div>
         </div>
-        <ul>
-          {poList.items.map(po => (
-            <li key={po.id}>{po.id} — {po.currency} — Total: {po.total}</li>
-          ))}
-        </ul>
+        {poList.items.length === 0 ? (
+          <div style={{color:'#666'}}>Sin resultados para los filtros seleccionados.</div>
+        ) : (
+          <ul>
+            {poList.items.map(po => (
+              <li key={po.id} style={{display:'flex', gap:8, alignItems:'center'}}>
+                <span>{po.id} — {po.currency} — Total: {po.total} — Estado: {po.status}</span>
+                <button onClick={() => selectPO(po.id)}>Ver</button>
+              </li>
+            ))}
+          </ul>
+        )}
       </Section>
+
+      {selectedPO && (
+        <Section title={`PO seleccionada: ${selectedPO.id}`}>
+          <div style={{display:'grid', gap:8}}>
+            <div>
+              <strong>Estado:</strong> {selectedPO.status} — <strong>Moneda:</strong> {selectedPO.currency} — <strong>Total:</strong> {selectedPO.total}
+            </div>
+            <div>
+              <strong>Notas:</strong> {selectedPO.notes || '—'}
+            </div>
+            <div>
+              <strong>Acciones:</strong>
+              <div style={{display:'flex', gap:8, flexWrap:'wrap', marginTop:8}}>
+                {(selectedPO.status === 'DRAFT' || selectedPO.status === 'REJECTED') && (
+                  <button onClick={submitSelectedPO} disabled={loading}>Enviar a aprobación</button>
+                )}
+                {selectedPO.status !== 'CANCELLED' && selectedPO.status !== 'APPROVED' && (
+                  <button onClick={cancelSelectedPO} disabled={loading}>Cancelar</button>
+                )}
+              </div>
+            </div>
+            <div>
+              <strong>Pasos de aprobación</strong>
+              <div style={{marginTop:8}}>
+                {poSteps.length === 0 ? (
+                  <em>No hay pasos instanciados.</em>
+                ) : (
+                  <ol>
+                    {poSteps.map(st => (
+                      <li key={st.id}>
+                        <div>
+                          <span>Orden {st.order} — Rol: {st.role?.name || 'N/A'} — Estado: {st.status}</span>
+                          {st.approver && (
+                            <span> — Aprobador: {st.approver.firstName || st.approver.email}</span>
+                          )}
+                          {st.comment && (
+                            <span> — Comentario: {st.comment}</span>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+              {selectedPO.status === 'SUBMITTED' && poSteps.some(s => s.status === 'PENDING') && (
+                <div style={{display:'grid', gap:8, maxWidth:520, marginTop:8}}>
+                  <label style={{display:'grid'}}>
+                    <span>Comentario (opcional)</span>
+                    <input value={decisionComment} onChange={e=>setDecisionComment(e.target.value)} />
+                  </label>
+                  <div style={{display:'flex', gap:8}}>
+                    <button onClick={approveCurrentStep} disabled={loading}>Aprobar paso pendiente</button>
+                    <button onClick={rejectCurrentStep} disabled={loading}>Rechazar paso pendiente</button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div>
+              <strong>Auditoría</strong>
+              <div style={{marginTop:8}}>
+                {poLogs.length === 0 ? (
+                  <em>Sin eventos todavía.</em>
+                ) : (
+                  <>
+                    <div style={{marginBottom:8}}>
+                      <button onClick={exportLogsToCSV}>Exportar CSV</button>
+                    </div>
+                    <ul>
+                      {poLogs.map(log => (
+                        <li key={log.id}>
+                          <span>{new Date(log.createdAt).toLocaleString()} — {log.action}</span>
+                          {log.user && (
+                            <span> — Por: {log.user.firstName || log.user.email}</span>
+                          )}
+                          {log.comment && (
+                            <span> — Comentario: {log.comment}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </Section>
+      )}
     </div>
   )
 }
+

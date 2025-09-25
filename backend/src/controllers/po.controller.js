@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { z } from 'zod'
+import logger from '../middlewares/logger.js'
 
 const money = z.preprocess(
   (v) => (typeof v === 'string' || typeof v === 'number' ? Number(v) : v),
@@ -132,6 +133,7 @@ async function selectPolicyForPO(po) {
 
 export async function submitPO(req, res) {
   try {
+    const startedAt = Date.now()
     const { id } = req.params
     const po = await prisma.purchaseOrder.findUnique({ where: { id } })
     if (!po) return res.status(404).json({ error: 'Purchase order not found' })
@@ -161,8 +163,10 @@ export async function submitPO(req, res) {
     })
 
     const withSteps = await prisma.purchaseOrder.findUnique({ where: { id: po.id }, include: { approvals: true } })
+    logger.info({ action: 'po.submit', poId: id, userId: req.user?.id, elapsedMs: Date.now() - startedAt }, 'PO submitted')
     res.json(withSteps)
   } catch (err) {
+    logger.error({ action: 'po.submit', poId: req.params?.id, userId: req.user?.id, error: err?.message }, 'Failed to submit PO')
     res.status(500).json({ error: 'Failed to submit purchase order' })
   }
 }
@@ -185,6 +189,7 @@ const decisionSchema = z.object({ comment: z.string().max(1000).optional().nulla
 
 export async function approveStep(req, res) {
   try {
+    const startedAt = Date.now()
     const { id, order } = req.params
     const { comment } = decisionSchema.parse(req.body || {})
     // find current pending step
@@ -221,17 +226,20 @@ export async function approveStep(req, res) {
     })
 
     const next = await prisma.purchaseApprovalStep.findFirst({ where: { purchaseOrderId: id, status: 'PENDING' }, orderBy: { order: 'asc' } })
+    logger.info({ action: 'po.approve', poId: id, stepOrder: Number(order), userId: req.user?.id, nextPendingOrder: next?.order ?? null, elapsedMs: Date.now() - startedAt }, 'Step approved')
     res.json({ ok: true, nextPendingOrder: next?.order ?? null })
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation error', details: err.flatten() })
     }
+    logger.error({ action: 'po.approve', poId: req.params?.id, stepOrder: Number(req.params?.order), userId: req.user?.id, error: err?.message }, 'Failed to approve step')
     return res.status(500).json({ error: 'Failed to approve step' })
   }
 }
 
 export async function rejectStep(req, res) {
   try {
+    const startedAt = Date.now()
     const { id, order } = req.params
     const { comment } = decisionSchema.parse(req.body || {})
 
@@ -265,6 +273,7 @@ export async function rejectStep(req, res) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation error', details: err.flatten() })
     }
+    logger.error({ action: 'po.reject', poId: req.params?.id, stepOrder: Number(req.params?.order), userId: req.user?.id, error: err?.message }, 'Failed to reject step')
     return res.status(500).json({ error: 'Failed to reject step' })
   }
 }
@@ -281,5 +290,122 @@ export async function cancelPO(req, res) {
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: 'Failed to cancel purchase order' })
+  }
+}
+
+export async function listLogs(req, res) {
+  try {
+    const { id } = req.params
+    const logs = await prisma.approvalLog.findMany({
+      where: { purchaseOrderId: id },
+      orderBy: { createdAt: 'asc' },
+      include: { user: true },
+    })
+    res.json({ logs })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to list approval logs' })
+  }
+}
+
+export async function stats(req, res) {
+  try {
+    const [draft, submitted, approved, rejected, cancelled] = await Promise.all([
+      prisma.purchaseOrder.count({ where: { status: 'DRAFT' } }),
+      prisma.purchaseOrder.count({ where: { status: 'SUBMITTED' } }),
+      prisma.purchaseOrder.count({ where: { status: 'APPROVED' } }),
+      prisma.purchaseOrder.count({ where: { status: 'REJECTED' } }),
+      prisma.purchaseOrder.count({ where: { status: 'CANCELLED' } }),
+    ])
+
+    const recent = await prisma.approvalLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: {
+        user: true,
+        purchaseOrder: { select: { id: true, status: true, total: true, currency: true } },
+      },
+    })
+
+    res.json({
+      counts: { draft, submitted, approved, rejected, cancelled },
+      recent,
+    })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get PO stats' })
+  }
+}
+
+export async function pendingForMe(req, res) {
+  try {
+    const canApproveAny = (req.permissions || []).includes('po.approve')
+    // Get all pending steps ordered by PO then order
+    const steps = await prisma.purchaseApprovalStep.findMany({
+      where: { status: 'PENDING' },
+      orderBy: [{ purchaseOrderId: 'asc' }, { order: 'asc' }],
+      include: { role: true, purchaseOrder: true },
+    })
+
+    // Keep only the first pending per PO (current step)
+    const firstByPO = new Map()
+    for (const s of steps) {
+      if (!firstByPO.has(s.purchaseOrderId)) firstByPO.set(s.purchaseOrderId, s)
+    }
+
+    // If user cannot approve any by permission, filter by matching user roles
+    let filtered = Array.from(firstByPO.values())
+    if (!canApproveAny) {
+      const myRoles = await prisma.userRole.findMany({ where: { userId: req.user.id } })
+      const roleSet = new Set(myRoles.map((r) => r.roleId))
+      filtered = filtered.filter((s) => (s.roleId ? roleSet.has(s.roleId) : false))
+    }
+
+    // Map to concise payload
+    const items = filtered.map((s) => ({
+      step: { id: s.id, order: s.order, roleId: s.roleId, roleName: s.role?.name || null },
+      po: {
+        id: s.purchaseOrder.id,
+        status: s.purchaseOrder.status,
+        total: s.purchaseOrder.total,
+        currency: s.purchaseOrder.currency,
+        supplierId: s.purchaseOrder.supplierId,
+      },
+    }))
+
+    res.json({ items, total: items.length })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get pending approvals for user' })
+  }
+}
+
+export async function statsTimeseries(req, res) {
+  try {
+    const days = Number(req.query.days || 14)
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    const logs = await prisma.approvalLog.findMany({
+      where: { createdAt: { gte: since } },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    // Initialize buckets per day
+    const buckets = {}
+    for (let i = 0; i < days; i++) {
+      const d = new Date(Date.now() - (days - 1 - i) * 24 * 60 * 60 * 1000)
+      const key = d.toISOString().slice(0, 10)
+      buckets[key] = { date: key, submitted: 0, approved: 0, rejected: 0, cancelled: 0 }
+    }
+
+    for (const l of logs) {
+      const key = l.createdAt.toISOString().slice(0, 10)
+      if (!buckets[key]) continue
+      if (l.action === 'submitted') buckets[key].submitted++
+      else if (l.action === 'approved') buckets[key].approved++
+      else if (l.action === 'rejected') buckets[key].rejected++
+      else if (l.action === 'cancelled') buckets[key].cancelled++
+    }
+
+    const series = Object.values(buckets)
+    res.json({ days, series })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get timeseries stats' })
   }
 }

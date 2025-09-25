@@ -304,3 +304,9 @@ docker compose up -d --build
 
 - Para problemas de infraestructura (puertos, Docker), sigue la secciÃ³n de Troubleshooting.
 - Para incidencias funcionales, comparte los pasos para reproducir y los logs de `backend`.
+
+## Documentación
+
+- Manual de Usuario: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+- Guía de Desarrollador: [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)
+
