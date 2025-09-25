@@ -1,6 +1,8 @@
 import { prisma } from '../lib/prisma.js'
 import { z } from 'zod'
 import logger from '../middlewares/logger.js'
+import fs from 'fs'
+import path from 'path'
 
 const money = z.preprocess(
   (v) => (typeof v === 'string' || typeof v === 'number' ? Number(v) : v),

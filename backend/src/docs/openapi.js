@@ -341,6 +341,56 @@ export const openapiSpec = {
         parameters: [ { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } } ],
         responses: { '200': { description: 'Cancelled' }, '401': { description: 'Unauthorized' } }
       }
+    },
+    '/api/po/{id}/files': {
+      get: {
+        tags: ['PurchaseOrders'],
+        summary: 'Lista archivos adjuntos de la OC',
+        security: [{ bearerAuth: [] }],
+        parameters: [ { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } } ],
+        responses: { '200': { description: 'OK' }, '401': { description: 'Unauthorized' } }
+      },
+      post: {
+        tags: ['PurchaseOrders'],
+        summary: 'Sube un archivo adjunto',
+        security: [{ bearerAuth: [] }],
+        parameters: [ { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } } ],
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                properties: { file: { type: 'string', format: 'binary' } },
+                required: ['file']
+              }
+            }
+          }
+        },
+        responses: { '201': { description: 'Created' }, '400': { description: 'Validation error' }, '401': { description: 'Unauthorized' }, '403': { description: 'Forbidden' } }
+      }
+    },
+    '/api/po/{id}/files/{fileId}': {
+      get: {
+        tags: ['PurchaseOrders'],
+        summary: 'Descarga un archivo adjunto',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+          { name: 'fileId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }
+        ],
+        responses: { '200': { description: 'File' }, '401': { description: 'Unauthorized' }, '404': { description: 'Not Found' } }
+      },
+      delete: {
+        tags: ['PurchaseOrders'],
+        summary: 'Elimina un archivo adjunto',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+          { name: 'fileId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }
+        ],
+        responses: { '200': { description: 'Deleted' }, '401': { description: 'Unauthorized' }, '404': { description: 'Not Found' } }
+      }
     }
   },
   components: {
@@ -361,6 +411,18 @@ export const openapiSpec = {
           phone: { type: 'string' },
           address: { type: 'string' },
           isActive: { type: 'boolean' }
+        }
+      },
+      Attachment: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          purchaseOrderId: { type: 'string', format: 'uuid' },
+          filename: { type: 'string' },
+          path: { type: 'string' },
+          mimeType: { type: 'string' },
+          sizeBytes: { type: 'integer' },
+          uploadedAt: { type: 'string', format: 'date-time' }
         }
       }
     }

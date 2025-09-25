@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
+import { useToast } from '../components/ToastProvider.jsx'
 
 export default function Login() {
   const nav = useNavigate()
+  const toast = useToast()
   const [form, setForm] = useState({ email: 'admin@local.test', password: 'Admin1234!' })
   const [loading, setLoading] = useState(false)
   const [health, setHealth] = useState(null)
@@ -18,9 +20,13 @@ export default function Login() {
     try {
       const res = await api.login(form.email, form.password)
       api.setToken(res.tokens.accessToken)
+      if (res.tokens?.refreshToken) {
+        api.setRefreshToken(res.tokens.refreshToken)
+      }
+      toast.success(`Bienvenido ${res.user?.firstName || res.user?.email || ''}`.trim())
       nav('/dashboard')
     } catch (e) {
-      alert('Login error: ' + e.message)
+      toast.error('Login error: ' + e.message)
     } finally {
       setLoading(false)
     }
