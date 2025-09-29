@@ -1,5 +1,28 @@
 # Guía de Desarrollador
 
+## Quickstart (TL;DR)
+
+1) Duplica `/.env.example` → `/.env` y revisa puertos/URLs.
+2) Levanta servicios base (DB + API):
+   ```bash
+   docker compose up -d db backend
+   ```
+3) Prepara la base de datos en `backend/`:
+   ```bash
+   npm install
+   npm run prisma:migrate:deploy
+   npm run prisma:seed
+   ```
+4) (Opcional) Levanta el frontend:
+   ```bash
+   docker compose --profile all-in-docker up -d frontend
+   # o local: cd frontend && npm install && npm run dev
+   ```
+5) Ejecuta tests de integración en `backend/`:
+   ```bash
+   npm run test:integration
+   ```
+
 ## Arquitectura
 - Monorepo: `backend/` (Express + Prisma), `frontend/` (React + Vite), `db` (PostgreSQL en Docker) + `pgAdmin` (opcional).
 - Prisma models: RBAC (Users/Roles/Permissions), Suppliers, POs, PurchaseItems, ApprovalPolicy/Steps, PurchaseApprovalStep, ApprovalLog, Attachment.
@@ -33,6 +56,33 @@ docker compose logs -f backend
 docker compose logs -f db
 ```
 
+## Flujo local sin Docker (opcional)
+
+Puedes desarrollar 100% local si ya tienes PostgreSQL instalado:
+
+1) Crea una base local y exporta `DATABASE_URL_TEST` para usarla en desarrollo/test.
+   - PowerShell (Windows):
+     ```powershell
+     $env:DATABASE_URL_TEST = "postgres://user:pass@localhost:5432/backoffice_db_dev"
+     ```
+2) Genera/migra y siembra contra esa URL:
+   ```bash
+   cd backend
+   # migraciones/seed apuntando a DATABASE_URL_TEST
+   DATABASE_URL=$DATABASE_URL_TEST npm run prisma:migrate:deploy
+   DATABASE_URL=$DATABASE_URL_TEST npm run prisma:seed
+   ```
+3) Ejecuta la API localmente:
+   ```bash
+   npm run dev
+   ```
+4) Frontend local:
+   ```bash
+   cd ../frontend
+   npm install
+   npm run dev
+   ```
+
 ## Backend
 - Express middlewares: `pino-http`, `helmet`, `cors`, `express-rate-limit`, `error-handler`.
 - Env validation: `backend/src/config/env.js` con `envalid`.
@@ -62,6 +112,13 @@ Suite incluida:
 - `test/po-negative.spec.js`: order incorrecto y sin pendientes.
 - `test/validation.spec.js`: validaciones de `createPO`.
 
+Notas importantes:
+- También hay specs en `backend/tests/` (por ejemplo `po-approval.spec.js`). Vitest detecta `**/*.spec.js` por defecto.
+- Si usas Postgres local para pruebas, exporta `DATABASE_URL_TEST` (ver sección “Flujo local sin Docker”).
+- Atajos de npm en `backend/package.json`:
+  - `test:setup` corre migraciones y seed pensadas para CI/integración.
+  - `test:integration` ≈ `npm run test:setup && npm test`.
+
 ## Métricas y logging
 - `backend/src/middlewares/logger.js`: `pino`/`pino-http`.
 - `backend/src/controllers/po.controller.js`:
@@ -79,6 +136,20 @@ Suite incluida:
 - Exportar métricas a Prometheus.
 - Tests de cancelación con pasos pendientes (`SKIPPED`).
 - Frontend: búsqueda por texto y skeletons adicionales.
+
+## Frontend (UI/UX estándar)
+
+- Se añadió una hoja de estilos global `frontend/src/styles.css` con una estética profesional (modo oscuro, componentes base: tarjetas, botones, inputs, tablas, utilidades).
+- Se importa en `frontend/src/main.jsx` para que aplique a toda la app.
+- Páginas clave:
+  - `Login.jsx`: rediseñada como tarjeta centrada con componentes consistentes y estado del backend.
+  - `Dashboard.jsx`: usa clases globales (`container`, `appbar`, `section`, `kpis`, `kpi`) para una apariencia unificada.
+- Recomendación: reemplazar estilos inline restantes por clases utilitarias o componentes reutilizables (p. ej. `Card`, `Button`, `TextField`).
+
+### Guía rápida de estilos
+- Contenedores: `container` para ancho máx. y padding; `section` para cajas principales con borde/sombra; `appbar` para encabezado.
+- Formularios: `label > span` para la etiqueta, `input/select/textarea` con focus ring; botonería `button`, variantes `secondary`/`danger`.
+- Métricas: `kpis` (grid responsiva) y `kpi` (tarjeta con `.label` y `.value`).
 
 ## Ejemplos cURL del flujo de aprobación
 

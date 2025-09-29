@@ -12,7 +12,6 @@ Este repo contiene un monorepo simple con `backend` (Node + Express), `frontend`
 ## Requisitos previos
 - Docker Desktop actualizado.
 - Puertos libres: 4000 (backend), 5173 (frontend), 5432 (Postgres), 5050 (pgAdmin opcional).
-
 ## Primeros pasos
 1. Copia el archivo `.env.example` a `.env` y ajusta valores si es necesario.
 2. Levanta los servicios:
@@ -48,10 +47,11 @@ Este repo contiene un monorepo simple con `backend` (Node + Express), `frontend`
 - `docker compose logs -f frontend`: ver logs frontend.
 - `docker compose down`: detener todo.
 
-## Notas futuras
-- Integraremos Softland mediante un módulo dedicado en el backend.
-- Añadiremos migraciones/ORM (Prisma/Knex) para el esquema de la base de datos.
-- Añadiremos tests, lint y CI/CD.
+## Notas y estado
+- Softland: pendiente (módulo dedicado en el backend).
+- ORM (Prisma): implementado.
+- Tests backend (Vitest + Supertest): implementado.
+- Lint y CI/CD: pendiente.
 
 ---
 
@@ -136,39 +136,39 @@ docker compose up -d --build
 
 ```
 .
-├─ backend/
-│  ├─ Dockerfile
-│  ├─ package.json
-│  └─ src/
-│     ├─ config/
-│     │  └─ env.js           # Validación de variables (envalid)
-│     ├─ controllers/
-│     │  ├─ config.controller.js
-│     │  └─ health.controller.js
-│     ├─ lib/
-│     │  └─ db.js            # Pool de pg y helpers
-│     ├─ middlewares/
-│     │  ├─ error-handler.js # 404 + manejador de errores
-│     │  └─ logger.js        # pino + pino-http
-│     ├─ routes/
-│     │  └─ index.js         # Rutas /health y /api/config
-│     └─ index.js            # Bootstrapping del servidor
-├─ frontend/
-│  ├─ Dockerfile
-│  ├─ index.html
-│  ├─ package.json
-│  └─ src/
-│     ├─ App.jsx
-│     └─ main.jsx
-├─ docker-compose.yml
-├─ .env.example
-└─ README.md
+backend/
+  Dockerfile
+  package.json
+  src/
+    config/
+      env.js           # Validación de variables (envalid)
+    controllers/
+      config.controller.js
+      health.controller.js
+    lib/
+      db.js            # Pool de pg y helpers
+    middlewares/
+      error-handler.js # 404 + manejador de errores
+      logger.js        # pino + pino-http
+    routes/
+      index.js         # Rutas /health y /api/config
+    index.js           # Bootstrapping del servidor
+frontend/
+  Dockerfile
+  index.html
+  package.json
+  src/
+    App.jsx
+    main.jsx
+docker-compose.yml
+.env.example
+README.md
 ```
 
 ## Configuración de entorno
 
-- Variables en `.env` (raíz). Las más relevantes en dev:
-  - `POSTGRES_PORT`: puerto del host para exponer Postgres (ej. 5433 si 5432 está ocupado).
+- Variables en `.env` (raÃ­z). Las mÃ¡s relevantes en dev:
+  - `POSTGRES_PORT`: puerto del host para exponer Postgres (ej. 5433 si 5432 estÃ¡ ocupado).
   - `DATABASE_URL`: `postgres://user:pass@db:5432/dbname` (nota: host `db`).
   - `BACKEND_PORT`: puerto del host para exponer el backend (map a 4000 del contenedor).
   - `FRONTEND_PORT`: puerto del host para Vite (map a 5173 del contenedor).
@@ -247,7 +247,7 @@ docker compose up -d --build
       INTEGRATION_TEST=1 npm run test
       ```
     - Caso cubierto: login con `admin@local.test` / `Admin1234!` y acceso a `/auth/me` con `Bearer` token.
-  - Scripts útiles de DB:
+  - Scripts Ãºtiles de DB:
     ```bash
     npm run prisma:generate
     npm run prisma:migrate         # desarrollo
@@ -262,8 +262,8 @@ docker compose up -d --build
 ## Problemas comunes (Troubleshooting)
 
 - Puerto 5432 ocupado
-  - Síntoma: `Bind for 0.0.0.0:5432 failed: port is already allocated`.
-  - Solución rápida: en `.env` usa `POSTGRES_PORT=5433` y vuelve a levantar con `up -d --build`.
+  - SÃ­ntoma: `Bind for 0.0.0.0:5432 failed: port is already allocated`.
+  - SoluciÃ³n rÃ¡pida: en `.env` usa `POSTGRES_PORT=5433` y vuelve a levantar con `up -d --build`.
   - Alternativa: identificar proceso que ocupa 5432 y detenerlo.
 
 - CORS bloquea solicitudes desde el navegador
@@ -273,13 +273,26 @@ docker compose up -d --build
 - El frontend no llega al backend
   - Verifica que `VITE_API_URL` apunte a `http://localhost:4000` (o el puerto configurado) y que el backend esté arriba.
 
+## Integración con Softland (pendiente)
+
+- Alcance: sincronización de proveedores, órdenes de compra y estados.
+- Endpoints planeados:
+  - `GET /api/softland/suppliers/sync`
+  - `POST /api/softland/po/push`
+  - `POST /api/softland/po/:id/status`
+- Configuración:
+  - `SOFTLAND_BASE_URL`
+  - `SOFTLAND_API_KEY`
+  - `SOFTLAND_TIMEOUT_MS`
+
 ## Roadmap (siguientes pasos)
 
-- Integrar endpoints de Proveedores y Órdenes de Compra con RBAC en backend.
-- Implementar flujo de aprobación por política (runtime) en `/pos/:id/submit/approve/reject/cancel`.
 - Healthchecks de Docker y políticas de reinicio.
 - CI/CD (GitHub Actions) para lint, tests y build de imágenes.
 - Dockerfiles multi-stage y `docker-compose.prod.yml` con Nginx sirviendo el build del frontend.
+- Tests de frontend (RTL) y configuración de ESLint + Prettier + EditorConfig.
+- Integración con Softland (módulo backend, endpoints y sincronización de datos).
+- Métricas y observabilidad (requestId en logs, exportar a Prometheus).
 
 ---
 
@@ -305,8 +318,8 @@ docker compose up -d --build
 - Para problemas de infraestructura (puertos, Docker), sigue la sección de Troubleshooting.
 - Para incidencias funcionales, comparte los pasos para reproducir y los logs de `backend`.
 
-## Documentaci�n
+## Documentación
 
 - Manual de Usuario: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
-- Gu�a de Desarrollador: [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)
+- Guía de Desarrollador: [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)
 
