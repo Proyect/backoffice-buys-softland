@@ -411,3 +411,67 @@ export async function statsTimeseries(req, res) {
     res.status(500).json({ error: 'Failed to get timeseries stats' })
   }
 }
+
+// =====================
+// Attachments
+// =====================
+
+export async function listFiles(req, res) {
+  try {
+    const { id } = req.params
+    const files = await prisma.attachment.findMany({
+      where: { purchaseOrderId: id },
+      orderBy: { uploadedAt: 'desc' },
+    })
+    res.json({ files })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to list files' })
+  }
+}
+
+export async function uploadFile(req, res) {
+  try {
+    const { id } = req.params
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
+    const po = await prisma.purchaseOrder.findUnique({ where: { id } })
+    if (!po) return res.status(404).json({ error: 'Purchase order not found' })
+
+    const created = await prisma.attachment.create({
+      data: {
+        purchaseOrderId: id,
+        filename: req.file.originalname,
+        path: req.file.path,
+        mimeType: req.file.mimetype || null,
+        sizeBytes: typeof req.file.size === 'number' ? req.file.size : null,
+      },
+    })
+    res.status(201).json(created)
+  } catch (err) {
+    logger.error({ action: 'po.uploadFile', error: err?.message }, 'Failed to upload file')
+    res.status(500).json({ error: 'Failed to upload file' })
+  }
+}
+
+export async function downloadFile(req, res) {
+  try {
+    const { id, fileId } = req.params
+    const file = await prisma.attachment.findFirst({ where: { id: fileId, purchaseOrderId: id } })
+    if (!file) return res.status(404).json({ error: 'File not found' })
+    return res.download(file.path, file.filename)
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to download file' })
+  }
+}
+
+export async function deleteFile(req, res) {
+  try {
+    const { id, fileId } = req.params
+    const file = await prisma.attachment.findFirst({ where: { id: fileId, purchaseOrderId: id } })
+    if (!file) return res.status(404).json({ error: 'File not found' })
+    await prisma.attachment.delete({ where: { id: fileId } })
+    try { fs.unlinkSync(file.path) } catch {}
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete file' })
+  }
+}

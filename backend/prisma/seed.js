@@ -27,6 +27,8 @@ async function upsertPermissions() {
     'po.approve',
     'po.reject',
     'po.cancel',
+    'po.attach',
+    // 'po.attach.delete', // habilitar si se requiere permiso separado para borrar
 
     // Audit
     'audit.read',
@@ -66,7 +68,7 @@ async function upsertRoles(permissions) {
       name: 'Comprador',
       description: 'Crea y edita órdenes de compra',
       permissions: makePermCreates([
-        'supplier.read', 'po.read', 'po.create', 'po.update', 'po.submit',
+        'supplier.read', 'po.read', 'po.create', 'po.update', 'po.submit', 'po.attach',
       ]),
     },
   })

@@ -14,7 +14,8 @@
     "db:reset": "prisma migrate reset --force && npm run prisma:seed",
     "test:setup": "npm run prisma:migrate:deploy && npm run prisma:seed",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:integration": "npm run test:setup && npm test"
   },
   "dependencies": {
     "@prisma/client": "^5.18.0",
