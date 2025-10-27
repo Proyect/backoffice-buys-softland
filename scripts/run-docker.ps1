@@ -12,17 +12,24 @@ if (-not (Test-Path ".env")) {
 }
 
 # Base services
-$cmd = "docker compose up -d db backend"
+$profiles = @()
+if ($AllInDocker) { $profiles += '--profile all-in-docker' }
+if ($WithPgAdmin) { $profiles += '--profile db-tools' }
+
+$profileArgs = ($profiles -join ' ')
+if ($profileArgs) { $profileArgs = " $profileArgs" }
+
+$cmd = "docker compose$profileArgs up -d db backend"
 
 # Optional services
 if ($AllInDocker) { $cmd = "$cmd frontend" }
 if ($WithPgAdmin) { $cmd = "$cmd pgadmin" }
 
 Write-Host "[Run-Docker] Executing: $cmd" -ForegroundColor Cyan
-iex $cmd
+Invoke-Expression $cmd
 
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "[Run-Docker] Logs (backend). Press Ctrl+C to stop following." -ForegroundColor Cyan
 # Tail backend logs
-iex "docker compose logs -f backend"
+Invoke-Expression "docker compose logs -f backend"

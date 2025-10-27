@@ -1,14 +1,32 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 import { useToast } from '../components/ToastProvider.jsx'
+import DataTable from 'react-data-table-component'
 
 function Section({ title, children }) {
   return (
-    <section style={{border:'1px solid #ddd', borderRadius:8, padding:16, margin:'16px 0'}}>
+    <section className="section">
       <h2 style={{marginTop:0}}>{title}</h2>
       {children}
     </section>
+  )
+}
+
+function Modal({ open, onClose, title, children, maxWidth = 600 }) {
+  if (!open) return null
+  return (
+    <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000}} role="dialog" aria-modal="true">
+      <div style={{background:'#fff', borderRadius:8, width:'90%', maxWidth, boxShadow:'0 10px 30px rgba(0,0,0,0.2)'}}>
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderBottom:'1px solid #eee'}}>
+          <strong>{title}</strong>
+          <button onClick={onClose} aria-label="Cerrar" title="Cerrar">✕</button>
+        </div>
+        <div style={{padding:16}}>
+          {children}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -31,18 +49,137 @@ export default function Dashboard() {
   const [poFilesLoading, setPoFilesLoading] = useState(false)
   const [poFilters, setPoFilters] = useState({ status: '', supplierId: '' })
   const [poPage, setPoPage] = useState(0)
-  const pageSize = 10
+  const [poPageSize, setPoPageSize] = useState(10)
   const [poListLoading, setPoListLoading] = useState(false)
   const [suppliersLoading, setSuppliersLoading] = useState(false)
   const [poStats, setPoStats] = useState({ counts: { draft: 0, submitted: 0, approved: 0, rejected: 0, cancelled: 0 }, recent: [] })
   const [poPendingMe, setPoPendingMe] = useState({ items: [], total: 0 })
   const [poTimeseries, setPoTimeseries] = useState({ days: 14, series: [] })
   const [supPage, setSupPage] = useState(0)
-  const supPageSize = 10
+  const [supPageSize, setSupPageSize] = useState(10)
   const [decisionComments, setDecisionComments] = useState({})
   const [editingSupplierId, setEditingSupplierId] = useState(null)
   const [editingSupplier, setEditingSupplier] = useState({ name: '', taxId: '', email: '' })
+  const [showSupplierModal, setShowSupplierModal] = useState(false)
+  const [showPOModal, setShowPOModal] = useState(false)
+  const [showEditSupplierModal, setShowEditSupplierModal] = useState(false)
+  const [pendingSearch, setPendingSearch] = useState('')
+  const [poSearch, setPoSearch] = useState('')
+  const [supplierSearch, setSupplierSearch] = useState('')
+  const [poSort, setPoSort] = useState({ field: 'createdAt', dir: 'desc' })
+  const [supSort, setSupSort] = useState({ field: 'name', dir: 'asc' })
 
+
+
+  const pendingRows = React.useMemo(() => (
+    (poPendingMe.items || []).map(it => ({
+      ...it,
+      id: it?.step?.id || `${it?.po?.id || 'po'}-${it?.step?.order || 'step'}`,
+    }))
+  ), [poPendingMe.items])
+
+  const pendingColumns = React.useMemo(() => [
+    {
+      name: 'PO',
+      selector: row => row.po?.id,
+      sortable: false,
+      width: '120px',
+    },
+    {
+      name: 'Paso',
+      selector: row => `${row.step?.order} (${row.step?.roleName || row.step?.roleId || ''})`,
+      grow: 2,
+      wrap: true,
+    },
+    {
+      name: 'Estado',
+      selector: row => row.po?.status,
+      width: '140px',
+    },
+    {
+      name: 'Total',
+      selector: row => `${row.po?.total} ${row.po?.currency}`,
+      width: '160px',
+      right: true,
+    },
+    {
+      name: 'Acciones',
+      cell: row => (
+        <div style={{display:'grid', gap:6}}>
+          <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
+            <button onClick={() => selectPO(row.po.id)}>Ver</button>
+            {selectedPO?.id !== row.po.id && (
+              <button onClick={async () => { await selectPO(row.po.id); }}>Abrir</button>
+            )}
+          </div>
+          {(can('po.approve') || can('po.reject')) && (
+            <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+              <input
+                placeholder="Comentario (opcional)"
+                value={decisionComments[row.po.id] || ''}
+                onChange={e=>setDecisionComments({...decisionComments, [row.po.id]: e.target.value})}
+                style={{minWidth:240}}
+              />
+              {can('po.approve') && (
+                <button onClick={() => approvePendingForPo(row.po.id)} disabled={loading}>Aprobar</button>
+              )}
+              {can('po.reject') && (
+                <button onClick={() => rejectPendingForPo(row.po.id)} disabled={loading}>Rechazar</button>
+              )}
+            </div>
+          )}
+        </div>
+      ),
+      ignoreRowClick: true,
+      allowOverflow: true,
+      button: true,
+      grow: 3,
+    },
+  ], [selectedPO, decisionComments, loading])
+
+  const poColumns = React.useMemo(() => [
+    { name: 'ID', selector: row => row.id, sortField: 'id', sortable: true, width: '120px' },
+    { name: 'Moneda', selector: row => row.currency, sortField: 'currency', sortable: true, width: '120px' },
+    { name: 'Total', selector: row => row.total, sortField: 'total', sortable: true, right: true, width: '140px' },
+    { name: 'Estado', selector: row => row.status, sortField: 'status', sortable: true, width: '160px' },
+    {
+      name: 'Acciones',
+      cell: row => (<button onClick={() => selectPO(row.id)}>Ver</button>),
+      ignoreRowClick: true,
+      allowOverflow: true,
+      button: true,
+    },
+  ], [])
+
+  const supplierColumns = React.useMemo(() => [
+    { name: 'Nombre', selector: row => row.name, sortField: 'name', sortable: true, grow: 2 },
+    { name: 'Email', selector: row => row.email || 's/ email', sortField: 'email', sortable: true, grow: 2 },
+    { name: 'Tax ID', selector: row => row.taxId || '', sortField: 'taxId', sortable: true, width: '160px' },
+    {
+      name: 'Acciones',
+      cell: row => (
+        <div style={{display:'flex', gap:8, justifyContent:'flex-end'}}>
+          {can('supplier.update') && <button onClick={() => { startEditSupplier(row); setShowEditSupplierModal(true) }}>Editar</button>}
+          {can('supplier.delete') && <button onClick={() => deleteSupplier(row.id)} style={{color:'#b00'}}>Eliminar</button>}
+        </div>
+      ),
+      ignoreRowClick: true,
+      allowOverflow: true,
+      button: true,
+      width: '200px',
+    },
+  ], [])
+
+  const filteredPendingRows = useMemo(() => {
+    const q = pendingSearch.trim().toLowerCase()
+    if (!q) return pendingRows
+    return pendingRows.filter(r => {
+      const parts = [r.po?.id, r.step?.order, r.step?.roleName, r.step?.roleId, r.po?.status, r.po?.currency, r.po?.total]
+      return parts.some(v => String(v ?? '').toLowerCase().includes(q))
+    })
+  }, [pendingRows, pendingSearch])
+
+  // Server-side search/sort for POs and Suppliers; pending stays client-side
   function can(perm) {
     const perms = me?.permissions || me?.user?.permissions || []
     return Array.isArray(perms) && perms.includes(perm)
@@ -177,23 +314,26 @@ export default function Dashboard() {
     })()
   }, [nav])
 
-  // Auto-reload POs when filters or page change
+  // Auto-reload POs when filters, page, page size, search or sort change
   useEffect(() => {
     loadPOs()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [poFilters, poPage])
+  }, [poFilters, poPage, poPageSize, poSearch, poSort.field, poSort.dir])
 
-  // Auto-reload Suppliers when page changes
+  // Auto-reload Suppliers when page, page size, search or sort change
   useEffect(() => {
     if (can('supplier.read')) loadSuppliers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supPage])
+  }, [supPage, supPageSize, supplierSearch, supSort.field, supSort.dir])
 
   async function loadSuppliers() {
     setSuppliersLoading(true)
     try {
       if (!can('supplier.read')) return
-      const data = await api.suppliers.list({ take: supPageSize, skip: supPage * supPageSize })
+      const params = { take: supPageSize, skip: supPage * supPageSize }
+      if (supplierSearch && supplierSearch.trim()) params.q = supplierSearch.trim()
+      if (supSort.field) { params.sortField = supSort.field; params.sortDir = supSort.dir }
+      const data = await api.suppliers.list(params)
       setSuppliers(data)
       if (data.items.length && !poForm.supplierId) {
         setPoForm((p) => ({ ...p, supplierId: data.items[0].id }))
@@ -252,9 +392,11 @@ export default function Dashboard() {
     setPoListLoading(true)
     try {
       if (!can('po.read')) return
-      const params = { take: pageSize, skip: poPage * pageSize }
+      const params = { take: poPageSize, skip: poPage * poPageSize }
       if (poFilters.status) params.status = poFilters.status
       if (poFilters.supplierId) params.supplierId = poFilters.supplierId
+      if (poSearch && poSearch.trim()) params.q = poSearch.trim()
+      if (poSort.field) { params.sortField = poSort.field; params.sortDir = poSort.dir }
       const data = await api.po.list(params)
       setPoList(data)
     } finally {
@@ -473,11 +615,11 @@ export default function Dashboard() {
   }
 
   return (
-    <div style={{fontFamily:'Inter, system-ui, Arial', padding: 24, maxWidth: 1000, margin:'0 auto'}}>
-      <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
+    <div className="container">
+      <header className="appbar">
         <div>
           <h1 style={{margin:'0 0 4px'}}>Dashboard</h1>
-          <small style={{color:'#666'}}>API: {api.url}</small>
+          <small>API: {api.url}</small>
         </div>
         <div>
           {me && (
@@ -489,12 +631,13 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <Section title="Estado del backend">
+     {/*< <Section title="Estado del backend">
         <pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(health, null, 2)}</pre>
-      </Section>
+      </Section> >*/}
+
 
       <Section title="Indicadores (PO)">
-        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:12}}>
+        <div className="kpis">
           {[
             { key:'draft', label:'Borradores' },
             { key:'submitted', label:'Enviadas' },
@@ -502,9 +645,9 @@ export default function Dashboard() {
             { key:'rejected', label:'Rechazadas' },
             { key:'cancelled', label:'Canceladas' },
           ].map(k => (
-            <div key={k.key} style={{border:'1px solid #ddd', borderRadius:8, padding:12, background:'#fafafa'}}>
-              <div style={{fontSize:12, color:'#666'}}>{k.label}</div>
-              <div style={{fontSize:24, fontWeight:700}}>{poStats.counts?.[k.key] ?? 0}</div>
+            <div key={k.key} className="kpi">
+              <div className="label">{k.label}</div>
+              <div className="value">{poStats.counts?.[k.key] ?? 0}</div>
             </div>
           ))}
         </div>
@@ -531,40 +674,30 @@ export default function Dashboard() {
       </Section>
 
       <Section title="Mis aprobaciones pendientes">
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap'}}>
           <strong>Total: {poPendingMe.total}</strong>
-          <button onClick={() => { loadPendingForMe(); }}>Refrescar</button>
+          <div style={{display:'flex', gap:8, alignItems:'center'}}>
+            <input
+              placeholder="Buscar..."
+              value={pendingSearch}
+              onChange={e=>setPendingSearch(e.target.value)}
+              style={{minWidth:200}}
+            />
+            <button onClick={() => { loadPendingForMe(); }}>Refrescar</button>
+          </div>
         </div>
+
         {poPendingMe.items.length ? (
-          <ul>
-            {poPendingMe.items.map(it => (
-              <li key={it.step.id} style={{display:'grid', gap:6}}>
-                <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-                  <span>PO {it.po.id} — Paso #{it.step.order} ({it.step.roleName || it.step.roleId}) — Estado: {it.po.status} — Total: {it.po.total} {it.po.currency}</span>
-                  <button onClick={() => selectPO(it.po.id)}>Ver</button>
-                  {selectedPO?.id !== it.po.id && (
-                    <button onClick={async () => { await selectPO(it.po.id); }}>Abrir</button>
-                  )}
-                </div>
-                {(can('po.approve') || can('po.reject')) && (
-                  <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-                    <input
-                      placeholder="Comentario (opcional)"
-                      value={decisionComments[it.po.id] || ''}
-                      onChange={e=>setDecisionComments({...decisionComments, [it.po.id]: e.target.value})}
-                      style={{minWidth:240}}
-                    />
-                    {can('po.approve') && (
-                      <button onClick={() => approvePendingForPo(it.po.id)} disabled={loading}>Aprobar</button>
-                    )}
-                    {can('po.reject') && (
-                      <button onClick={() => rejectPendingForPo(it.po.id)} disabled={loading}>Rechazar</button>
-                    )}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+          <DataTable
+            columns={pendingColumns}
+            data={filteredPendingRows}
+            keyField="id"
+            dense
+            highlightOnHover
+            striped
+            responsive
+            noHeader
+          />
         ) : (
           <div style={{color:'#666'}}>No tienes aprobaciones pendientes.</div>
         )}
@@ -604,8 +737,63 @@ export default function Dashboard() {
       {can('supplier.read') && (
       <Section title="Suppliers">
         <div style={{display:'flex', gap:16, alignItems:'start', flexWrap:'wrap'}}>
-          {can('supplier.create') ? (
-          <form onSubmit={createSupplier} style={{display:'grid', gap:8, minWidth:280}}>
+          <div style={{minWidth:280}}>
+            {can('supplier.create') ? (
+              <button onClick={() => setShowSupplierModal(true)}>Nuevo proveedor</button>
+            ) : (
+              <div style={{color:'#666'}}>No tienes permiso para crear proveedores.</div>
+            )}
+          </div>
+
+          <div style={{flex:1, minWidth:320}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              <strong>Listado (total: {suppliers.total})</strong>
+              <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                {suppliersLoading && <small style={{color:'#888'}}>Cargando…</small>}
+                <button onClick={loadSuppliers} disabled={suppliersLoading}>Refrescar</button>
+              </div>
+            </div>
+            <div style={{display:'flex', gap:8, alignItems:'center', margin:'8px 0'}}>
+              <input
+                placeholder="Buscar proveedor..."
+                value={supplierSearch}
+                onChange={e=>{ setSupplierSearch(e.target.value); setSupPage(0) }}
+                style={{minWidth:240}}
+              />
+            </div>
+            {suppliers.items.length === 0 ? (
+              <div style={{color:'#666'}}>No hay proveedores.</div>
+            ) : (
+              <DataTable
+                columns={supplierColumns}
+                data={suppliers.items}
+                keyField="id"
+                dense
+                highlightOnHover
+                striped
+                responsive
+                noHeader
+                pagination
+                paginationServer
+                paginationTotalRows={suppliers.total || 0}
+                paginationPerPage={supPageSize}
+                paginationRowsPerPageOptions={[5,10,20,50]}
+                onChangePage={(page) => setSupPage(page - 1)}
+                onChangeRowsPerPage={(newPerPage, page) => { setSupPageSize(newPerPage); setSupPage(Math.max(0, (page || 1) - 1)); }}
+                sortServer
+                onSort={(column, sortDirection) => {
+                  const field = column.sortField || ''
+                  setSupSort({ field, dir: sortDirection })
+                  setSupPage(0)
+                }}
+                progressPending={suppliersLoading}
+              />
+            )}
+          </div>
+        </div>
+
+        <Modal open={showSupplierModal} onClose={() => setShowSupplierModal(false)} title="Crear proveedor">
+          <form onSubmit={(e)=>{ createSupplier(e).then(()=>setShowSupplierModal(false)) }} style={{display:'grid', gap:8, minWidth:280}}>
             <label style={{display:'grid'}}>
               <span>Nombre</span>
               <input value={supForm.name} onChange={e=>setSupForm({...supForm, name:e.target.value})} required />
@@ -618,69 +806,33 @@ export default function Dashboard() {
               <span>Email</span>
               <input type="email" value={supForm.email} onChange={e=>setSupForm({...supForm, email:e.target.value})} />
             </label>
-            <button type="submit" disabled={loading}>Crear proveedor</button>
+            <div style={{display:'flex', gap:8, justifyContent:'flex-end'}}>
+              <button type="button" onClick={()=>setShowSupplierModal(false)}>Cancelar</button>
+              <button type="submit" disabled={loading}>Crear proveedor</button>
+            </div>
           </form>
-          ) : (
-            <div style={{minWidth:280, color:'#666'}}>No tienes permiso para crear proveedores.</div>
-          )}
+        </Modal>
 
-          <div style={{flex:1, minWidth:320}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-              <strong>Listado (total: {suppliers.total})</strong>
-              <div style={{display:'flex', gap:8, alignItems:'center'}}>
-                {suppliersLoading && <small style={{color:'#888'}}>Cargando…</small>}
-                <button onClick={loadSuppliers} disabled={suppliersLoading}>Refrescar</button>
-              </div>
+        <Modal open={showEditSupplierModal && !!editingSupplierId} onClose={() => { setShowEditSupplierModal(false); cancelEditSupplier() }} title="Editar proveedor">
+          <form onSubmit={(e)=>{ e.preventDefault(); saveSupplier().then(()=>{ setShowEditSupplierModal(false) }) }} style={{display:'grid', gap:8, minWidth:280}}>
+            <label style={{display:'grid'}}>
+              <span>Nombre</span>
+              <input placeholder="Nombre" value={editingSupplier.name} onChange={e=>setEditingSupplier({...editingSupplier, name:e.target.value})} required />
+            </label>
+            <label style={{display:'grid'}}>
+              <span>Tax ID</span>
+              <input placeholder="Tax ID" value={editingSupplier.taxId} onChange={e=>setEditingSupplier({...editingSupplier, taxId:e.target.value})} />
+            </label>
+            <label style={{display:'grid'}}>
+              <span>Email</span>
+              <input placeholder="Email" type="email" value={editingSupplier.email} onChange={e=>setEditingSupplier({...editingSupplier, email:e.target.value})} />
+            </label>
+            <div style={{display:'flex', gap:8, justifyContent:'flex-end'}}>
+              <button type="button" onClick={()=>{ setShowEditSupplierModal(false); cancelEditSupplier() }}>Cancelar</button>
+              <button type="submit" disabled={suppliersLoading || !editingSupplier.name.trim()}>Guardar</button>
             </div>
-            <div style={{display:'flex', gap:8, alignItems:'center', margin:'8px 0'}}>
-              {(() => {
-                const pages = Math.max(1, Math.ceil((suppliers.total || 0) / supPageSize))
-                const page = supPage + 1
-                return (
-                  <>
-                    <button onClick={() => setSupPage(p => Math.max(0, p - 1))} disabled={supPage === 0}>Anterior</button>
-                    <span>Página {page} de {pages}</span>
-                    <button onClick={() => setSupPage(p => (page < pages ? p + 1 : p))} disabled={(supPage + 1) >= pages}>Siguiente</button>
-                  </>
-                )
-              })()}
-            </div>
-            {suppliers.items.length === 0 ? (
-              <div style={{color:'#666'}}>No hay proveedores.</div>
-            ) : (
-              <ul>
-                {suppliers.items.map(s => (
-                  <li key={s.id} style={{display:'grid', gridTemplateColumns:'1fr auto', gap:8, alignItems:'center'}}>
-                    {editingSupplierId === s.id ? (
-                      <div style={{display:'grid', gap:8, gridTemplateColumns:'2fr 1fr 1fr'}}>
-                        <input placeholder="Nombre" value={editingSupplier.name} onChange={e=>setEditingSupplier({...editingSupplier, name:e.target.value})} />
-                        <input placeholder="Tax ID" value={editingSupplier.taxId} onChange={e=>setEditingSupplier({...editingSupplier, taxId:e.target.value})} />
-                        <input placeholder="Email" type="email" value={editingSupplier.email} onChange={e=>setEditingSupplier({...editingSupplier, email:e.target.value})} />
-                      </div>
-                    ) : (
-                      <div>
-                        <strong>{s.name}</strong> — {s.email || 's/ email'} {s.taxId ? `— ${s.taxId}` : ''}
-                      </div>
-                    )}
-                    <div style={{display:'flex', gap:8, justifyContent:'flex-end'}}>
-                      {editingSupplierId === s.id ? (
-                        <>
-                          <button onClick={saveSupplier} disabled={suppliersLoading || !editingSupplier.name.trim()}>Guardar</button>
-                          <button onClick={cancelEditSupplier}>Cancelar</button>
-                        </>
-                      ) : (
-                        <>
-                          {can('supplier.update') && <button onClick={() => startEditSupplier(s)}>Editar</button>}
-                          {can('supplier.delete') && <button onClick={() => deleteSupplier(s.id)} style={{color:'#b00'}}>Eliminar</button>}
-                        </>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+          </form>
+        </Modal>
       </Section>
       )}
 
@@ -697,51 +849,63 @@ export default function Dashboard() {
 
       {can('po.create') && (
       <Section title="Crear Purchase Order">
-        <form onSubmit={createPO} style={{display:'grid', gap:8, maxWidth:520}}>
-          <label style={{display:'grid'}}>
-            <span>Proveedor</span>
-            <select value={poForm.supplierId} onChange={e=>setPoForm({...poForm, supplierId:e.target.value})} required>
-              <option value="">Seleccionar…</option>
-              {suppliers.items.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-          </label>
-          <label style={{display:'grid'}}>
-            <span>Moneda</span>
-            <select value={poForm.currency} onChange={e=>setPoForm({...poForm, currency:e.target.value})}>
-              <option>ARS</option>
-              <option>USD</option>
-              <option>EUR</option>
-            </select>
-          </label>
-          <label style={{display:'grid'}}>
-            <span>Notas</span>
-            <input value={poForm.notes} onChange={e=>setPoForm({...poForm, notes:e.target.value})} />
-          </label>
-          <fieldset style={{border:'1px dashed #bbb', padding:12}}>
-            <legend>Ítem</legend>
-            <div style={{display:'grid', gap:8, gridTemplateColumns:'2fr 1fr 1fr 1fr', alignItems:'end'}}>
-              <label style={{display:'grid'}}>
-                <span>Descripción</span>
-                <input value={poForm.item.description} onChange={e=>setPoForm({...poForm, item:{...poForm.item, description:e.target.value}})} required />
-              </label>
-              <label style={{display:'grid'}}>
-                <span>Cantidad</span>
-                <input type="number" min={1} value={poForm.item.quantity} onChange={e=>setPoForm({...poForm, item:{...poForm.item, quantity:Number(e.target.value)}})} required />
-              </label>
-              <label style={{display:'grid'}}>
-                <span>Precio</span>
-                <input type="number" min={0} step="0.01" value={poForm.item.unitPrice} onChange={e=>setPoForm({...poForm, item:{...poForm.item, unitPrice:Number(e.target.value)}})} required />
-              </label>
-              <label style={{display:'grid'}}>
-                <span>IVA %</span>
-                <input type="number" min={0} max={100} value={poForm.item.taxPercent} onChange={e=>setPoForm({...poForm, item:{...poForm.item, taxPercent:Number(e.target.value)}})} />
-              </label>
+        <div>
+          <button onClick={()=>setShowPOModal(true)} disabled={suppliers.items.length === 0}>Nueva PO</button>
+          {suppliers.items.length === 0 && (
+            <small style={{marginLeft:8, color:'#666'}}>Primero crea un proveedor.</small>
+          )}
+        </div>
+
+        <Modal open={showPOModal} onClose={()=>setShowPOModal(false)} title="Crear Purchase Order" maxWidth={720}>
+          <form onSubmit={(e)=>{ createPO(e).then(()=>setShowPOModal(false)) }} style={{display:'grid', gap:8}}>
+            <label style={{display:'grid'}}>
+              <span>Proveedor</span>
+              <select value={poForm.supplierId} onChange={e=>setPoForm({...poForm, supplierId:e.target.value})} required>
+                <option value="">Seleccionar…</option>
+                {suppliers.items.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </label>
+            <label style={{display:'grid'}}>
+              <span>Moneda</span>
+              <select value={poForm.currency} onChange={e=>setPoForm({...poForm, currency:e.target.value})}>
+                <option>ARS</option>
+                <option>USD</option>
+                <option>EUR</option>
+              </select>
+            </label>
+            <label style={{display:'grid'}}>
+              <span>Notas</span>
+              <input value={poForm.notes} onChange={e=>setPoForm({...poForm, notes:e.target.value})} />
+            </label>
+            <fieldset style={{border:'1px dashed #bbb', padding:12}}>
+              <legend>Ítem</legend>
+              <div style={{display:'grid', gap:8, gridTemplateColumns:'2fr 1fr 1fr 1fr', alignItems:'end'}}>
+                <label style={{display:'grid'}}>
+                  <span>Descripción</span>
+                  <input value={poForm.item.description} onChange={e=>setPoForm({...poForm, item:{...poForm.item, description:e.target.value}})} required />
+                </label>
+                <label style={{display:'grid'}}>
+                  <span>Cantidad</span>
+                  <input type="number" min={1} value={poForm.item.quantity} onChange={e=>setPoForm({...poForm, item:{...poForm.item, quantity:Number(e.target.value)}})} required />
+                </label>
+                <label style={{display:'grid'}}>
+                  <span>Precio</span>
+                  <input type="number" min={0} step="0.01" value={poForm.item.unitPrice} onChange={e=>setPoForm({...poForm, item:{...poForm.item, unitPrice:Number(e.target.value)}})} required />
+                </label>
+                <label style={{display:'grid'}}>
+                  <span>IVA %</span>
+                  <input type="number" min={0} max={100} value={poForm.item.taxPercent} onChange={e=>setPoForm({...poForm, item:{...poForm.item, taxPercent:Number(e.target.value)}})} />
+                </label>
+              </div>
+            </fieldset>
+            <div style={{display:'flex', gap:8, justifyContent:'flex-end'}}>
+              <button type="button" onClick={()=>setShowPOModal(false)}>Cancelar</button>
+              <button type="submit" disabled={!poForm.supplierId || loading}>Crear PO</button>
             </div>
-          </fieldset>
-          <button type="submit" disabled={!poForm.supplierId || loading}>Crear PO</button>
-        </form>
+          </form>
+        </Modal>
       </Section>
       )}
 
@@ -770,34 +934,41 @@ export default function Dashboard() {
                 ))}
               </select>
             </label>
+            <label style={{display:'grid'}}>
+              <span>Buscar</span>
+              <input placeholder="Buscar PO..." value={poSearch} onChange={e=>{ setPoSearch(e.target.value); setPoPage(0) }} />
+            </label>
             <button onClick={loadPOs}>Aplicar</button>
           </div>
-          <div style={{display:'flex', gap:8, alignItems:'center'}}>
-            {poListLoading && <small style={{color:'#888'}}>Cargando…</small>}
-            {(() => {
-              const pages = Math.max(1, Math.ceil((poList.total || 0) / pageSize))
-              const page = poPage + 1
-              return (
-                <>
-                  <button onClick={() => setPoPage(p => Math.max(0, p - 1))} disabled={poPage === 0}>Anterior</button>
-                  <span>Página {page} de {pages}</span>
-                  <button onClick={() => setPoPage(p => (page < pages ? p + 1 : p))} disabled={(poPage + 1) >= pages}>Siguiente</button>
-                </>
-              )
-            })()}
-          </div>
+          {poListLoading && <small style={{color:'#888'}}>Cargando…</small>}
         </div>
         {poList.items.length === 0 ? (
           <div style={{color:'#666'}}>Sin resultados para los filtros seleccionados.</div>
         ) : (
-          <ul>
-            {poList.items.map(po => (
-              <li key={po.id} style={{display:'flex', gap:8, alignItems:'center'}}>
-                <span>{po.id} — {po.currency} — Total: {po.total} — Estado: {po.status}</span>
-                <button onClick={() => selectPO(po.id)}>Ver</button>
-              </li>
-            ))}
-          </ul>
+          <DataTable
+            columns={poColumns}
+            data={poList.items}
+            keyField="id"
+            dense
+            highlightOnHover
+            striped
+            responsive
+            noHeader
+            pagination
+            paginationServer
+            paginationTotalRows={poList.total || 0}
+            paginationPerPage={poPageSize}
+            paginationRowsPerPageOptions={[5,10,20,50]}
+            onChangePage={(page) => setPoPage(page - 1)}
+            onChangeRowsPerPage={(newPerPage, page) => { setPoPageSize(newPerPage); setPoPage(Math.max(0, (page || 1) - 1)); }}
+            sortServer
+            onSort={(column, sortDirection) => {
+              const field = column.sortField || column.selector?.( {}) || ''
+              setPoSort({ field, dir: sortDirection })
+              setPoPage(0)
+            }}
+            progressPending={poListLoading}
+          />
         )}
       </Section>
       )}

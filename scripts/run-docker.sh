@@ -17,7 +17,10 @@ if [ ! -f .env ]; then
   echo "[Run-Docker] Copied .env.example -> .env"
 fi
 
-CMD=(docker compose up -d db backend)
+CMD=(docker compose)
+if $ALL_IN_DOCKER; then CMD+=(--profile all-in-docker); fi
+if $WITH_PGADMIN; then CMD+=(--profile db-tools); fi
+CMD+=(up -d db backend)
 $ALL_IN_DOCKER && CMD+=(frontend)
 $WITH_PGADMIN && CMD+=(pgadmin)
 

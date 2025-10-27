@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 import { useToast } from '../components/ToastProvider.jsx'
+import { Card } from '../components/ui/Card.jsx'
+import { TextField } from '../components/ui/TextField.jsx'
+import { Button } from '../components/ui/Button.jsx'
 
 export default function Login() {
   const nav = useNavigate()
@@ -33,24 +36,37 @@ export default function Login() {
   }
 
   return (
-    <div style={{fontFamily:'Inter, system-ui, Arial', padding: 24, maxWidth: 420, margin:'10vh auto'}}>
-      <h1>Ingresar</h1>
-      <p style={{color:'#555'}}>API: {api.url}</p>
-      <form onSubmit={onSubmit} style={{display:'grid', gap:12}}>
-        <label style={{display:'grid'}}>
-          <span>Email</span>
-          <input type="email" value={form.email} onChange={e=>setForm({...form, email:e.target.value})} required />
-        </label>
-        <label style={{display:'grid'}}>
-          <span>Password</span>
-          <input type="password" value={form.password} onChange={e=>setForm({...form, password:e.target.value})} required />
-        </label>
-        <button type="submit" disabled={loading}>{loading ? 'Ingresando...' : 'Ingresar'}</button>
-      </form>
-      <div style={{marginTop:16}}>
-        <strong>Estado backend</strong>
-        <pre style={{whiteSpace:'pre-wrap', background:'#fafafa', padding:12, border:'1px solid #eee'}}>{JSON.stringify(health, null, 2)}</pre>
-      </div>
+    <div className="center-screen">
+      <Card title="Ingresar" subtitle="Backoffice Buys Softland">
+        <div className="flex justify-between items-center">
+          <span className="badge">{new URL(api.url).host}</span>
+        </div>
+        <form onSubmit={onSubmit} className="grid mt-16">
+          <TextField
+            label="Email"
+            type="email"
+            value={form.email}
+            onChange={e=>setForm({...form, email:e.target.value})}
+            required
+          />
+          <TextField
+            label="Password"
+            type="password"
+            value={form.password}
+            onChange={e=>setForm({...form, password:e.target.value})}
+            required
+          />
+          <Button type="submit" disabled={loading} fullWidth>
+            {loading ? 'Ingresando...' : 'Ingresar'}
+          </Button>
+        </form>
+
+        <div className="mt-16">
+          <div className="subtle" style={{marginBottom:8}}>Estado backend</div>
+          <pre className="codebox">{JSON.stringify(health, null, 2)}</pre>
+        </div>
+      </Card>
     </div>
   )
 }
+
