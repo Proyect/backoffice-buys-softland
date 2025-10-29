@@ -68,7 +68,7 @@ async function upsertRoles(permissions) {
       name: 'Comprador',
       description: 'Crea y edita órdenes de compra',
       permissions: makePermCreates([
-        'supplier.read', 'po.read', 'po.create', 'po.update', 'po.submit', 'po.attach',
+        'supplier.read', 'supplier.create', 'po.read', 'po.create', 'po.update', 'po.submit', 'po.attach',
       ]),
     },
   })
@@ -92,6 +92,27 @@ async function upsertRoles(permissions) {
       permissions: makePermCreates(['supplier.read', 'po.read', 'audit.read']),
     },
   })
+
+  // Ensure roles contain at least the expected permission links even if roles already existed
+  async function ensureRolePermissions(roleId, keys) {
+    const existing = await prisma.rolePermission.findMany({
+      where: { roleId },
+      include: { permission: true },
+    })
+    const existingKeys = new Set(existing.map(rp => rp.permission.key))
+    const missing = keys.filter(k => !existingKeys.has(k))
+    if (missing.length) {
+      await prisma.rolePermission.createMany({
+        data: missing.map(k => ({ roleId, permissionId: idByKey[k] })),
+        skipDuplicates: true,
+      })
+    }
+  }
+
+  await ensureRolePermissions(admin.id, permissions.map(p => p.key))
+  await ensureRolePermissions(comprador.id, ['supplier.read', 'supplier.create', 'po.read', 'po.create', 'po.update', 'po.submit', 'po.attach'])
+  await ensureRolePermissions(aprobador.id, ['po.read', 'po.approve', 'po.reject'])
+  await ensureRolePermissions(consulta.id, ['supplier.read', 'po.read', 'audit.read'])
 
   return { admin, comprador, aprobador, consulta }
 }

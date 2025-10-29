@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 import { useToast } from '../components/ToastProvider.jsx'
 import DataTable from 'react-data-table-component'
+import Modal from '../components/Modal.jsx'
 
 function Section({ title, children }) {
   return (
@@ -13,27 +14,13 @@ function Section({ title, children }) {
   )
 }
 
-function Modal({ open, onClose, title, children, maxWidth = 600 }) {
-  if (!open) return null
-  return (
-    <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000}} role="dialog" aria-modal="true">
-      <div style={{background:'#fff', borderRadius:8, width:'90%', maxWidth, boxShadow:'0 10px 30px rgba(0,0,0,0.2)'}}>
-        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderBottom:'1px solid #eee'}}>
-          <strong>{title}</strong>
-          <button onClick={onClose} aria-label="Cerrar" title="Cerrar">✕</button>
-        </div>
-        <div style={{padding:16}}>
-          {children}
-        </div>
-      </div>
-    </div>
-  )
-}
+ 
 
 export default function Dashboard() {
   const SHOW_PERM_NOTICES = import.meta.env.VITE_SHOW_PERM_NOTICES !== 'false'
   const nav = useNavigate()
   const toast = useToast()
+  const AUTO_REFRESH_MS = Number(import.meta.env.VITE_AUTO_REFRESH_MS || 15000)
   const [me, setMe] = useState(null)
   const [suppliers, setSuppliers] = useState({ items: [], total: 0 })
   const [supForm, setSupForm] = useState({ name: '', taxId: '', email: '' })
@@ -313,6 +300,26 @@ export default function Dashboard() {
       }
     })()
   }, [nav])
+
+  useEffect(() => {
+    let t
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      if (!me) return
+      const tasks = []
+      if (can('supplier.read')) tasks.push(loadSuppliers())
+      if (can('po.read')) {
+        tasks.push(loadPOs())
+        tasks.push(loadStats())
+        tasks.push(loadPendingForMe())
+        tasks.push(loadTimeseries())
+        if (selectedPO?.id) tasks.push(selectPO(selectedPO.id))
+      }
+      Promise.allSettled(tasks)
+    }
+    t = setInterval(tick, AUTO_REFRESH_MS)
+    return () => { if (t) clearInterval(t) }
+  }, [me, selectedPO?.id])
 
   // Auto-reload POs when filters, page, page size, search or sort change
   useEffect(() => {

@@ -28,6 +28,158 @@
 - Prisma models: RBAC (Users/Roles/Permissions), Suppliers, POs, PurchaseItems, ApprovalPolicy/Steps, PurchaseApprovalStep, ApprovalLog, Attachment.
 - Semillas (seed): permisos, roles, admin y política de aprobación base (2 pasos).
 
+### Diagrama ER (ERD)
+```mermaid
+erDiagram
+  User ||--o{ UserRole : has
+  Role ||--o{ UserRole : has
+  Role ||--o{ RolePermission : has
+  Permission ||--o{ RolePermission : has
+  User ||--o{ RefreshToken : issues
+  User ||--o{ AuditLog : writes
+
+  Supplier ||--o{ PurchaseOrder : provides
+  User ||--o{ PurchaseOrder : creates
+  PurchaseOrder ||--o{ PurchaseItem : contains
+  PurchaseOrder ||--o{ PurchaseApprovalStep : flows
+  Role ||--o{ PurchaseApprovalStep : assigned_to
+  PurchaseOrder ||--o{ ApprovalLog : logs
+  User ||--o{ ApprovalLog : acts
+  PurchaseOrder ||--o{ Attachment : has
+
+  ApprovalPolicy ||--o{ ApprovalStepTemplate : defines
+  Role ||--o{ ApprovalStepTemplate : required_by
+
+  User {
+    String id PK
+    String email
+    String passwordHash
+    String firstName
+    String lastName
+    Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Role {
+    String id PK
+    String name
+    String description
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Permission {
+    String id PK
+    String key
+    String description
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  UserRole {
+    String userId FK
+    String roleId FK
+  }
+  RolePermission {
+    String roleId FK
+    String permissionId FK
+  }
+  RefreshToken {
+    String id PK
+    String userId FK
+    String token
+    DateTime expiresAt
+    Boolean revoked
+    DateTime createdAt
+    String ip
+    String userAgent
+  }
+  AuditLog {
+    String id PK
+    String userId FK
+    String action
+    String entity
+    String entityId
+    Json payload
+    String ip
+    String userAgent
+    DateTime createdAt
+  }
+  Supplier {
+    String id PK
+    String name
+    String taxId
+    String email
+    String phone
+    String address
+    Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  PurchaseOrder {
+    String id PK
+    String supplierId FK
+    String createdByUserId FK
+    Enum status
+    Enum currency
+    Decimal total
+    String notes
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  PurchaseItem {
+    String id PK
+    String purchaseOrderId FK
+    String description
+    Int quantity
+    Decimal unitPrice
+    Decimal taxPercent
+    Decimal total
+  }
+  ApprovalPolicy {
+    String id PK
+    String name
+    String description
+    Decimal maxAmount
+    Enum currency
+    String costCenter
+    Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ApprovalStepTemplate {
+    String id PK
+    String roleId FK
+    Int order
+    String policyId FK
+  }
+  PurchaseApprovalStep {
+    String id PK
+    String purchaseOrderId FK
+    Int order
+    String roleId FK
+    String approverUserId FK
+    Enum status
+    String comment
+    DateTime decidedAt
+  }
+  ApprovalLog {
+    String id PK
+    String purchaseOrderId FK
+    String userId FK
+    String action
+    String comment
+    DateTime createdAt
+  }
+  Attachment {
+    String id PK
+    String purchaseOrderId FK
+    String filename
+    String path
+    String mimeType
+    Int sizeBytes
+    DateTime uploadedAt
+  }
+```
+
 ## Variables de entorno (raíz .env)
 - DB: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`.
 - Backend: `BACKEND_PORT`, `DATABASE_URL`, `ALLOWED_ORIGINS`, `JWT_SECRET`, `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`, `PUBLIC_BASE_URL` (opc).
