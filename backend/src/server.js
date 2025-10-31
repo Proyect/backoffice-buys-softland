@@ -2,13 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes/index.js';
-import { httpLogger } from './middlewares/logger.js';
+import { httpLogger, setRequestIdHeader } from './middlewares/logger.js';
 import { notFound, errorHandler } from './middlewares/error-handler.js';
 import { env, getAllowedOrigins } from './config/env.js';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 import { openapiSpec } from './docs/openapi.js';
+import compression from 'compression';
 
 // Cargar variables de entorno desde .env (útil en desarrollo/CLI). En Docker ya vienen inyectadas.
 dotenv.config();
@@ -17,6 +18,7 @@ export const app = express();
 
 // Logging HTTP (pino)
 app.use(httpLogger);
+app.use(setRequestIdHeader);
 
 // CORS por orígenes permitidos
 const allowed = new Set(getAllowedOrigins());
@@ -34,6 +36,7 @@ app.use(cors({
 
 // Seguridad HTTP
 app.use(helmet());
+app.use(compression());
 
 // Rate limiting básico
 app.use(rateLimit({
@@ -54,7 +57,7 @@ const authLimiter = rateLimit({
 app.use('/auth', authLimiter);
 
 // Parsing JSON
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // Respetar X-Forwarded-* para construir URLs correctas detrás de proxies
 app.set('trust proxy', 1);

@@ -273,3 +273,25 @@ model Attachment {
 
   @@index([purchaseOrderId])
 }
+
+// ==========================
+// Departments
+// ==========================
+
+model Department {
+  id              String   @id @default(uuid())
+  name            String
+  code            String   @unique
+  description     String?
+  managerId       String?
+  budgetLimit     Decimal  @db.Decimal(18, 2)
+  isActive        Boolean  @default(true)
+  erpDepartmentId Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  manager User? @relation(fields: [managerId], references: [id])
+
+  @@index([name])
+  @@index([code])
+}
