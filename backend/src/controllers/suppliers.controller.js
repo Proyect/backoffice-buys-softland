@@ -14,16 +14,32 @@ export async function listSuppliers(req, res) {
   try {
     const { q, skip = '0', take = '20' } = req.query
     const where = q ? { name: { contains: String(q), mode: 'insensitive' } } : {}
+    const nSkip = Math.max(0, Number(skip) || 0)
+    const nTake = Math.min(Math.max(1, Number(take) || 20), 100)
     const [items, total] = await Promise.all([
       prisma.supplier.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: Number(skip),
-        take: Math.min(Number(take), 100),
+        skip: nSkip,
+        take: nTake,
       }),
       prisma.supplier.count({ where }),
     ])
-    res.json({ items, total })
+    const page = Math.floor(nSkip / nTake) + 1
+    const pageCount = Math.max(1, Math.ceil(total / nTake))
+    res.json({
+      items,
+      total,
+      data: items,
+      meta: {
+        total,
+        skip: nSkip,
+        take: nTake,
+        page,
+        perPage: nTake,
+        pageCount,
+      },
+    })
   } catch (err) {
     res.status(500).json({ error: 'Failed to list suppliers' })
   }

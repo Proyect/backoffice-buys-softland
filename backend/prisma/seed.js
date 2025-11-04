@@ -19,6 +19,13 @@ async function upsertPermissions() {
     'supplier.update',
     'supplier.delete',
 
+    // Departments
+    'department.read',
+    'department.create',
+    'department.update',
+    'department.delete',
+    'department.export',
+
     // Purchase Orders
     'po.read',
     'po.create',
@@ -112,7 +119,7 @@ async function upsertRoles(permissions) {
   await ensureRolePermissions(admin.id, permissions.map(p => p.key))
   await ensureRolePermissions(comprador.id, ['supplier.read', 'supplier.create', 'po.read', 'po.create', 'po.update', 'po.submit', 'po.attach'])
   await ensureRolePermissions(aprobador.id, ['po.read', 'po.approve', 'po.reject'])
-  await ensureRolePermissions(consulta.id, ['supplier.read', 'po.read', 'audit.read'])
+  await ensureRolePermissions(consulta.id, ['supplier.read', 'po.read', 'audit.read', 'department.read'])
 
   return { admin, comprador, aprobador, consulta }
 }

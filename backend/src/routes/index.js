@@ -5,6 +5,7 @@ import { login, refreshToken, logout, me } from '../controllers/auth.controller.
 import { requireAuth } from '../middlewares/auth.js';
 import suppliersRoutes from './suppliers.routes.js';
 import poRoutes from './po.routes.js';
+import departmentsRoutes from './departments.routes.js';
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.get('/auth/me', requireAuth, me);
 // API domain routes
 router.use('/api/suppliers', suppliersRoutes);
 router.use('/api/po', poRoutes);
+router.use('/api/departments', departmentsRoutes);
 
 export default router;

@@ -127,6 +127,20 @@ export const api = {
     clearRefreshToken();
   },
   me: () => request('/auth/me', { auth: true }),
+  departments: {
+    list: (params = {}) => {
+      const q = new URLSearchParams(params)
+      return request(`/api/departments?${q.toString()}`, { auth: true })
+    },
+    get: (id) => request(`/api/departments/${id}`, { auth: true }),
+    create: (data) => request('/api/departments', { method: 'POST', body: data, auth: true }),
+    update: (id, data) => request(`/api/departments/${id}`, { method: 'PUT', body: data, auth: true }),
+    remove: (id) => request(`/api/departments/${id}`, { method: 'DELETE', auth: true }),
+    exportCsvUrl: (params = {}) => {
+      const q = new URLSearchParams(params)
+      return `${API_URL}/api/departments/export/csv?${q.toString()}`
+    },
+  },
   suppliers: {
     list: (params = {}) => {
       const q = new URLSearchParams(params)

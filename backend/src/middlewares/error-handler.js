@@ -5,9 +5,11 @@ export function notFound(req, res, next) {
 
 export function errorHandler(err, req, res, next) {
   const status = err.status || err.statusCode || 500;
+  const message = err.message || 'Internal Server Error'
+  const name = err.name || 'Error'
   const payload = {
-    error: err.name || 'Error',
-    message: err.message || 'Internal Server Error',
+    error: message || name,
+    message,
   };
   if (process.env.NODE_ENV !== 'production' && err.stack) {
     payload.stack = err.stack;
