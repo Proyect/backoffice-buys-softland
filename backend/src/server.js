@@ -65,9 +65,9 @@ app.set('trust proxy', 1);
 // Documentación OpenAPI JSON dinámico
 app.get('/docs.json', (req, res) => {
   try {
-    const base = env.PUBLIC_BASE_URL && env.PUBLIC_BASE_URL.trim()
-      ? env.PUBLIC_BASE_URL.trim()
-      : `${req.protocol}://${req.get('host')}`;
+    // Prefer dynamic base from incoming request host/protocol to satisfy tests and proxies
+    const dynamicBase = `${req.protocol}://${req.get('host')}`;
+    const configured = (env.PUBLIC_BASE_URL && env.PUBLIC_BASE_URL.trim()) ? env.PUBLIC_BASE_URL.trim() : '';
 
     // Clonar y ajustar metadata sin mutar el spec importado
     const spec = {
@@ -77,7 +77,12 @@ app.get('/docs.json', (req, res) => {
         title: env.APP_NAME || openapiSpec.info?.title,
         version: env.APP_VERSION || openapiSpec.info?.version,
       },
-      servers: [{ url: base, description: env.NODE_ENV }],
+      servers: configured && configured !== dynamicBase
+        ? [
+            { url: dynamicBase, description: `${env.NODE_ENV} (dynamic)` },
+            { url: configured, description: `${env.NODE_ENV} (configured)` },
+          ]
+        : [ { url: dynamicBase, description: env.NODE_ENV } ],
     };
 
     res.set('Cache-Control', 'no-cache');

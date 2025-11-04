@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import DepartmentsList from './pages/DepartmentsList.jsx'
 import DepartmentForm from './pages/DepartmentForm.jsx'
 import DepartmentView from './pages/DepartmentView.jsx'
+import SuppliersList from './pages/SuppliersList.jsx'
 
 function Guard({ children }) {
   const token = localStorage.getItem('accessToken')
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/departments/new" element={<Guard><DepartmentForm /></Guard>} />
         <Route path="/departments/:id" element={<Guard><DepartmentView /></Guard>} />
         <Route path="/departments/:id/edit" element={<Guard><DepartmentForm /></Guard>} />
+        <Route path="/suppliers" element={<Guard><SuppliersList /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

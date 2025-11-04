@@ -21,6 +21,8 @@ const Button = styled.button`
   cursor: pointer;
 `
 
+const formatCurrency = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(Number(n || 0))
+
 export default function DepartmentsList() {
   const nav = useNavigate()
   const [loading, setLoading] = useState(false)
@@ -51,7 +53,7 @@ export default function DepartmentsList() {
     { name: 'Nombre', selector: r => r.name, sortable: true },
     { name: 'Código', selector: r => r.code, sortable: true },
     { name: 'Gerente', selector: r => r.manager ? `${r.manager.firstName} ${r.manager.lastName}` : '', sortable: false },
-    { name: 'Presupuesto', selector: r => r.budgetLimit, right: true },
+    { name: 'Presupuesto', selector: r => formatCurrency(r.budgetLimit), right: true },
     { name: 'Activo', selector: r => r.isActive ? 'Sí' : 'No' },
     {
       name: 'Acciones',
@@ -97,3 +99,4 @@ export default function DepartmentsList() {
     </Container>
   )
 }
+

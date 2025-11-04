@@ -19,6 +19,7 @@ const Label = styled.div`
 const Value = styled.div`
   flex: 1;
 `
+const formatCurrency = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(Number(n || 0))
 export default function DepartmentView() {
   const { id } = useParams()
   const [loading, setLoading] = useState(false)
@@ -42,7 +43,7 @@ export default function DepartmentView() {
       <Row><Label>Código</Label><Value>{dep.code}</Value></Row>
       <Row><Label>Descripción</Label><Value>{dep.description || '-'}</Value></Row>
       <Row><Label>Gerente</Label><Value>{dep.manager ? `${dep.manager.firstName} ${dep.manager.lastName}` : '-'}</Value></Row>
-      <Row><Label>Presupuesto</Label><Value>{dep.budgetLimit}</Value></Row>
+      <Row><Label>Presupuesto</Label><Value>{formatCurrency(dep.budgetLimit)}</Value></Row>
       <Row><Label>Activo</Label><Value>{dep.isActive ? 'Sí' : 'No'}</Value></Row>
       <Row><Label>ID ERP</Label><Value>{dep.erpDepartmentId ?? '-'}</Value></Row>
       <div style={{ marginTop: 16 }}>
@@ -52,3 +53,4 @@ export default function DepartmentView() {
     </Container>
   )
 }
+

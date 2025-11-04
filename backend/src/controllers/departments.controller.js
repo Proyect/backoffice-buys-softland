@@ -25,18 +25,35 @@ export async function listDepartments(req, res, next) {
         }
       : {}
 
+    const nSkip = Math.max(0, Number(skip) || 0)
+    const nTake = Math.min(Math.max(1, Number(take) || 20), 100)
     const [items, total] = await Promise.all([
       prisma.department.findMany({
         where,
         orderBy: { name: 'asc' },
-        take: Number(take),
-        skip: Number(skip),
+        take: nTake,
+        skip: nSkip,
         include: { manager: { select: { id: true, firstName: true, lastName: true, email: true } } },
       }),
       prisma.department.count({ where }),
     ])
 
-    res.json({ items, total })
+    const page = Math.floor(nSkip / nTake) + 1
+    const pageCount = Math.max(1, Math.ceil(total / nTake))
+
+    res.json({
+      items,
+      total,
+      data: items,
+      meta: {
+        total,
+        skip: nSkip,
+        take: nTake,
+        page,
+        perPage: nTake,
+        pageCount,
+      },
+    })
   } catch (err) {
     next(err)
   }
